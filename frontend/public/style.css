@@ -29,6 +29,9 @@
 
     /* Gap between the two sheets of a spread. */
     --spread-gap: 18px;
+
+    /* Minimum desk margin around the sheets. */
+    --desk-pad: 28px;
 }
 
 * { box-sizing: border-box; }
@@ -45,26 +48,44 @@ body {
     font-family: "Noto Serif JP", "YuMincho", "Yu Mincho", "MS Mincho",
                  "Hiragino Mincho ProN", "Songti SC", serif;
     -webkit-font-smoothing: antialiased;
+    display: flex;
+    flex-direction: column;
+    position: relative;
 }
 
 /* ------------------------------------------------------------- viewport --- */
 
 .page {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    /* Owns the space above the status bar, so centering never hides the
+       sheet behind it. */
+    flex: 1;
+    min-height: 0;
+    position: relative;
+    display: grid;
+    place-items: center;
+    /* Safe centering: a spread wider than the window stays centered and
+       crops evenly at both edges, instead of overflowing to the right the
+       way flexbox does. */
     overflow: hidden;
 }
 
-/* The one or two sheets currently on display, centered as a unit. */
+/* The one or two sheets currently on display. JS sizes this box to the
+   scaled spread size, so it always fits the viewport and centers cleanly;
+   the sheets inside are centered with absolute positioning, which (unlike
+   flex/grid) centers oversized content without clamping the overflow to
+   one side. */
 .spread {
+    position: relative;
+}
+
+.sheets {
+    position: absolute;
+    left: 50%;
+    top: 50%;
     display: flex;
     flex-direction: row;
     align-items: center;
     gap: var(--spread-gap);
-    /* Scaled by JS to fit the window; never scaled above 1. */
     transform-origin: center center;
 }
 
@@ -336,10 +357,7 @@ kbd {
 /* -------------------------------------------------------------- status --- */
 
 .status {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    flex: none;
     display: flex;
     align-items: center;
     gap: 1.2em;

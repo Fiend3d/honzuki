@@ -60,6 +60,9 @@ const host = { container: els.measure };
 
 // Keep in sync with --spread-gap in style.css.
 const SPREAD_GAP = 18;
+// Keep in sync with --desk-pad in style.css: the desk margin the spread must
+// clear, on each side.
+const DESK_PAD = 28;
 
 let settings: Settings = loadSettings();
 let book: Book | null = null;
@@ -128,16 +131,17 @@ function schedulePositionSave(): void {
 
 // --------------------------------------------------------------- display ---
 
-/** Usable viewport area; the status bar steals its height from the sheets. */
+/** Usable viewport area. The status bar sits in its own flex row, so the
+ *  page area already excludes it. */
 function availArea(): { w: number; h: number } {
     const rect = els.page.getBoundingClientRect();
-    const statusH = els.status.hidden ? 0 : els.status.offsetHeight;
-    return { w: rect.width, h: rect.height - statusH };
+    return { w: rect.width, h: rect.height };
 }
 
-/** 2 when the window is wide enough for a full-size spread, else 1. */
+/** 2 when the window is wide enough for a full-size spread (including the
+ *  desk padding on both sides), else 1. */
 function spreadCount(): number {
-    return availArea().w >= settings.pageWidth * 2 + SPREAD_GAP ? 2 : 1;
+    return availArea().w >= settings.pageWidth * 2 + SPREAD_GAP + 2 * DESK_PAD ? 2 : 1;
 }
 
 function updateStatus(visiblePages: number): void {
@@ -187,12 +191,26 @@ function renderSpread(): void {
         sheet.appendChild(columns);
         return sheet;
     });
-    els.spread.replaceChildren(...sheets);
+    const row = document.createElement("div");
+    row.className = "sheets";
+    row.append(...sheets);
+    els.spread.replaceChildren(row);
 
+    // Fit the spread inside the viewport, keeping at least the desk padding
+    // clear on every side. The spread box is sized to the SCALED size so it
+    // always fits and centers cleanly; the sheet row is centered inside it
+    // with absolute positioning and scaled about its center.
     const avail = availArea();
     const neededW = pages.length * settings.pageWidth + (pages.length - 1) * SPREAD_GAP;
-    const scale = Math.min(1, avail.w / neededW, avail.h / settings.pageHeight);
-    els.spread.style.transform = scale < 1 ? `scale(${scale})` : "";
+    const neededH = settings.pageHeight;
+    const scale = Math.min(
+        1,
+        (avail.w - 2 * DESK_PAD) / neededW,
+        (avail.h - 2 * DESK_PAD) / neededH,
+    );
+    els.spread.style.width = `${Math.round(neededW * scale)}px`;
+    els.spread.style.height = `${Math.round(neededH * scale)}px`;
+    row.style.transform = `translate(-50%, -50%) scale(${scale})`;
 
     updateStatus(pages.length);
 }

@@ -74,7 +74,6 @@ func main() {
 	app.Window.OnCreate(func(window application.Window) {
 		window.OnWindowEvent(events.Common.WindowRuntimeReady, func(event *application.WindowEvent) {
 			clampWindowToScreen(app, window)
-
 		})
 		window.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
 			files := event.Context().DroppedFiles()
