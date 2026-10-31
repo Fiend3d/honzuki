@@ -8,11 +8,16 @@
 </head>
 <body data-orientation="vertical">
 
-<!-- The page. Columns flow right-to-left inside it, and the page itself is the
-     unit the pager moves through. -->
+<!-- The viewport. Fixed-size page sheets are centered inside it; when the
+     window is wide enough, two sheets appear side by side like an open book. -->
 <main class="page" id="page" data-file-drop-target>
-    <div id="columns" class="columns"></div>
+    <div class="spread" id="spread"></div>
 </main>
+
+<!-- Off-screen measurement box. The pager lays text out here at the exact
+     page-sheet text size; what fits here fits on every sheet, regardless of
+     window size. -->
+<div class="columns measure" id="measure" aria-hidden="true"></div>
 
 <!-- Empty state, shown until a book is opened. -->
 <section class="welcome" id="welcome">
@@ -25,11 +30,37 @@
     <p class="welcome-keys">
         <kbd>Ctrl</kbd> + <kbd>O</kbd> 開く　·
         <kbd>←</kbd> 次　<kbd>→</kbd> 前　·
+        <kbd>Ctrl</kbd> + <kbd>,</kbd> 設定　·
         <kbd>Ctrl</kbd> + <kbd>M</kbd> 縦横　·
         <kbd>Esc</kbd> 閉じる
     </p>
     <p class="welcome-drop">ファイルをこの窓にドラッグしても開けます。</p>
     <ul class="recent" id="recent"></ul>
+</section>
+
+<!-- Page settings. Page size is fixed here, so resizing the window never
+     re-paginates the book - it only changes how many sheets are shown. -->
+<section class="settings" id="settings" hidden>
+    <div class="settings-card">
+        <h2 class="settings-title">ページ設定</h2>
+        <div class="settings-presets" id="settings-presets"></div>
+        <div class="settings-fields">
+            <label>ページ幅
+                <input id="page-w" type="number" min="300" max="1400" step="10"/> <span>px</span>
+            </label>
+            <label>ページ高さ
+                <input id="page-h" type="number" min="400" max="1800" step="10"/> <span>px</span>
+            </label>
+            <label>余白
+                <input id="page-margin" type="number" min="8" max="140" step="4"/> <span>px</span>
+            </label>
+            <label>文字サイズ
+                <input id="page-font" type="number" min="12" max="48" step="1"/> <span>px</span>
+            </label>
+        </div>
+        <p class="settings-note">窓が二ページ分より広くなると、見開き表示になります。</p>
+        <button class="btn" id="settings-close">閉じる</button>
+    </div>
 </section>
 
 <!-- Status line: title, position, encoding. -->

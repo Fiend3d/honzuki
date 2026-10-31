@@ -1,14 +1,18 @@
 /* honzuki — vertical Japanese reader
    ------------------------------------------------------------------
-   The reading model: a page is a fixed box. Inside it, CSS lays text out in
-   vertical columns that fill top-to-bottom and advance right-to-left, exactly
-   like a Japanese book. Pagination measures that box and cuts the text to fit.
+   The reading model: a page is a fixed sheet, sized in the settings, not by
+   the window. Inside a sheet, CSS lays text out in vertical columns that fill
+   top-to-bottom and advance right-to-left, exactly like a Japanese book.
+   Pagination measures the sheet's text box once per settings change. The
+   window shows one sheet, or two side by side (a spread) when it is wide
+   enough, scaled down if it is smaller than the sheet.
 */
 
 :root {
     /* Page colours: washi paper and ink, not pure white and black. */
     --paper: #faf7f0;
     --paper-edge: #efe9dd;
+    --desk: #e7e0d3;
     --ink: #2b2622;
     --ink-soft: #6b6257;
     --rule: #d9d1c4;
@@ -18,6 +22,13 @@
     --line-height: 1.9;
     --letter-spacing: 0.03em;
     --margin: 40px;
+
+    /* Fixed page sheet size, driven by settings.ts. */
+    --page-w: 560px;
+    --page-h: 820px;
+
+    /* Gap between the two sheets of a spread. */
+    --spread-gap: 18px;
 }
 
 * { box-sizing: border-box; }
@@ -29,24 +40,50 @@ html, body {
 }
 
 body {
-    background: var(--paper);
+    background: var(--desk);
     color: var(--ink);
     font-family: "Noto Serif JP", "YuMincho", "Yu Mincho", "MS Mincho",
                  "Hiragino Mincho ProN", "Songti SC", serif;
     -webkit-font-smoothing: antialiased;
 }
 
-/* ---------------------------------------------------------------- page --- */
+/* ------------------------------------------------------------- viewport --- */
 
 .page {
     position: absolute;
     inset: 0;
-    padding: var(--margin);
-    /* A faint inner edge, so the page reads as a sheet rather than a window. */
-    box-shadow: inset 0 0 0 1px var(--paper-edge);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
 }
 
-/* The column container. This is where vertical typesetting happens. */
+/* The one or two sheets currently on display, centered as a unit. */
+.spread {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--spread-gap);
+    /* Scaled by JS to fit the window; never scaled above 1. */
+    transform-origin: center center;
+}
+
+/* One page sheet. Fixed size regardless of the window. */
+.sheet {
+    width: var(--page-w);
+    height: var(--page-h);
+    padding: var(--margin);
+    flex: none;
+    background: var(--paper);
+    /* A faint inner edge plus a soft drop shadow, so sheets read as paper
+       lying on a desk. */
+    box-shadow:
+        inset 0 0 0 1px var(--paper-edge),
+        0 2px 10px rgba(60, 50, 35, 0.18);
+}
+
+/* The column container inside a sheet. This is where vertical typesetting
+   happens. */
 .columns {
     /* vertical-rl: text runs top-to-bottom, columns advance right-to-left. */
     writing-mode: vertical-rl;
@@ -66,6 +103,16 @@ body {
     /* Keep kana and punctuation off the last line of a column. */
     line-break: strict;
     hyphens: none;
+}
+
+/* The pager's measurement box: same typesetting as a sheet's text area,
+   parked off-screen so it never paints. */
+.measure {
+    position: fixed;
+    top: 0;
+    left: -100000px;
+    width: calc(var(--page-w) - 2 * var(--margin));
+    height: calc(var(--page-h) - 2 * var(--margin));
 }
 
 /* One column per page. The pager sizes it to the measured page box. */
@@ -106,6 +153,7 @@ body[data-orientation="horizontal"] .columns {
     padding: 2rem;
     text-align: center;
     color: var(--ink-soft);
+    background: var(--desk);
 }
 
 .welcome[hidden] { display: none; }
@@ -136,13 +184,104 @@ body[data-orientation="horizontal"] .columns {
     color: var(--ink-soft);
 }
 
+/* -------------------------------------------------------------- settings --- */
+
+.settings {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(43, 38, 34, 0.45);
+    z-index: 10;
+}
+
+.settings[hidden] { display: none; }
+
+.settings-card {
+    background: var(--paper);
+    border: 1px solid var(--paper-edge);
+    border-radius: 10px;
+    padding: 1.4em 1.6em;
+    min-width: 22em;
+    box-shadow: 0 8px 30px rgba(30, 25, 15, 0.35);
+    display: flex;
+    flex-direction: column;
+    gap: 1em;
+}
+
+.settings-title {
+    margin: 0;
+    font-size: 1.1em;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    color: var(--ink);
+}
+
+.settings-presets {
+    display: flex;
+    gap: 0.5em;
+    flex-wrap: wrap;
+}
+
+.settings-presets button {
+    font: inherit;
+    font-size: 0.9em;
+    padding: 0.35em 1em;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    background: #fff;
+    color: var(--ink);
+    cursor: pointer;
+}
+
+.settings-presets button:hover { background: var(--paper-edge); }
+.settings-presets button.active {
+    background: var(--ink);
+    color: var(--paper);
+    border-color: var(--ink);
+}
+
+.settings-fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.6em 1.2em;
+}
+
+.settings-fields label {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    font-size: 0.9em;
+    color: var(--ink-soft);
+    font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+.settings-fields input {
+    font: inherit;
+    width: 5.5em;
+    padding: 0.25em 0.4em;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    background: #fff;
+    color: var(--ink);
+}
+
+.settings-note {
+    margin: 0;
+    font-size: 0.8em;
+    color: var(--ink-soft);
+    font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
 /* --------------------------------------------------------------- drop ---- */
 
 /* The runtime adds .file-drop-target-active to the element marked
    data-file-drop-target while a file is dragged over the window. */
 .page.file-drop-target-active {
-    box-shadow: inset 0 0 0 2px var(--rule);
-    background: #f3eee4;
+    outline: 2px dashed var(--ink-soft);
+    outline-offset: -8px;
+    background: #ded7c8;
 }
 
 kbd {
@@ -164,6 +303,7 @@ kbd {
     background: transparent;
     color: var(--ink);
     cursor: pointer;
+    align-self: center;
 }
 
 .btn:hover { background: var(--ink); color: var(--paper); border-color: var(--ink); }

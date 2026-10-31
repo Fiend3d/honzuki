@@ -438,23 +438,14 @@ export function pageForOffset(pages: Page[], offset: number): number {
     return lo;
 }
 
-/** Build the DOM for one stored page. */
-function buildPageElement(page: Page, headingByPara: Map<number, string>): HTMLElement {
+/** Build the column DOM for one stored page (the caller wraps it in a sheet). */
+export function buildPageElement(page: Page, headingByPara: Map<number, string>): HTMLElement {
     const column = document.createElement("div");
     column.className = "column";
     for (const slice of page.slices) {
         column.appendChild(buildParaNode(slice, headingByPara));
     }
     return column;
-}
-
-/** Render a page's DOM into the container. */
-export function renderPage(
-    page: Page,
-    host: MeasureHost,
-    headingByPara: Map<number, string>,
-): void {
-    host.container.replaceChildren(buildPageElement(page, headingByPara));
 }
 
 export function headingMap(book: Book): Map<number, string> {

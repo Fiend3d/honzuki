@@ -74,6 +74,7 @@ func main() {
 	app.Window.OnCreate(func(window application.Window) {
 		window.OnWindowEvent(events.Common.WindowRuntimeReady, func(event *application.WindowEvent) {
 			clampWindowToScreen(app, window)
+
 		})
 		window.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
 			files := event.Context().DroppedFiles()
@@ -92,8 +93,8 @@ func main() {
 		Title: "honzuki",
 		// A book page is taller than wide, so the window leans tall - but
 		// clamped to the desktop, or the status bar starts off-screen.
-		Width:  windowWidth,
-		Height: windowHeight,
+		Width:     windowWidth,
+		Height:    windowHeight,
 		MinWidth:  480,
 		MinHeight: 400,
 		// Washi-paper background so the first paint matches the page colour.
@@ -104,7 +105,7 @@ func main() {
 		// On Windows the application menu is only attached (and its Ctrl
 		// accelerators registered) when each window opts in explicitly.
 		UseApplicationMenu: true,
-		URL:              "/",
+		URL:                "/",
 	})
 
 	// Run the open dialog from Go so the native menu and Ctrl+O share one path.
@@ -162,6 +163,10 @@ func buildMenu(app *application.App, books *BookService) *application.Menu {
 	view.AddSeparator()
 	view.Add("縦書き / 横書き を切り替え").SetAccelerator("CmdOrCtrl+M").OnClick(func(ctx *application.Context) {
 		emit(app, "honzuki:toggleorientation", nil)
+	})
+	view.AddSeparator()
+	view.Add("ページ設定…").SetAccelerator("CmdOrCtrl+,").OnClick(func(ctx *application.Context) {
+		emit(app, "honzuki:settings", nil)
 	})
 
 	help := menu.AddSubmenu("ヘルプ")
@@ -237,15 +242,16 @@ func emit(app *application.App, name string, data any) {
 	app.Event.Emit(name, data)
 }
 
-// initialWindowSize picks the opening window size: the preferred tall book
-// shape, clamped to the primary screen's work area so the whole window -
+// initialWindowSize picks the opening window size: wide enough for a full-size
+// two-page spread of the default page (2 x 560 + gap), tall enough for one -
+// clamped to the primary screen's work area so the whole window -
 // title bar, frames and status bar included - is visible on first launch.
 //
 // app.Screen cannot be used here: it is populated during app.Run, after the
 // window options have been read. Query the OS instead; a WindowLoaded safety
 // net below catches platforms this cannot answer.
 func initialWindowSize() (int, int) {
-	width, height := 900, 1100
+	width, height := 1160, 940
 	if w, h, ok := primaryWorkArea(); ok {
 		if height > h-8 {
 			height = h - 8

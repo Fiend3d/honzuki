@@ -2,6 +2,10 @@
 //
 // Navigation is inverted on purpose. In vertical-rl the next page appears to the
 // LEFT, so ArrowLeft/PageDown/Space advance and ArrowRight/PageUp go back.
+//
+// Pages are fixed-size sheets (settings), not window-sized. The window shows
+// one sheet, or two side by side when it is wide enough - then a page turn
+// flips a whole spread, like a real book. Resizing never re-paginates.
 
 import { Events } from "@wailsio/runtime";
 
@@ -9,11 +13,11 @@ import { BookService } from "../bindings/github.com/vlad/honzuki";
 import type { Book, Position, RecentEntry } from "../bindings/github.com/vlad/honzuki/models";
 
 import {
+    buildPageElement,
     headingMap,
     layoutBook,
     pageForOffset,
     measureColumnLength,
-    renderPage,
     type LaidOutBook,
     type Page,
 } from "./pager";
@@ -22,13 +26,17 @@ import {
     loadSettings,
     saveSettings,
     setFontSize,
+    setMargin,
+    setPageSize,
     toggleOrientation,
+    PAGE_PRESETS,
     type Settings,
 } from "./settings";
 
 const els = {
     page: document.getElementById("page") as HTMLElement,
-    columns: document.getElementById("columns") as HTMLElement,
+    spread: document.getElementById("spread") as HTMLElement,
+    measure: document.getElementById("measure") as HTMLElement,
     welcome: document.getElementById("welcome") as HTMLElement,
     welcomeOpen: document.getElementById("welcome-open") as HTMLButtonElement,
     recent: document.getElementById("recent") as HTMLElement,
@@ -37,9 +45,21 @@ const els = {
     statusPos: document.getElementById("status-pos") as HTMLElement,
     encoding: document.getElementById("encoding") as HTMLSelectElement,
     toast: document.getElementById("toast") as HTMLElement,
+    settings: document.getElementById("settings") as HTMLElement,
+    settingsPresets: document.getElementById("settings-presets") as HTMLElement,
+    settingsClose: document.getElementById("settings-close") as HTMLButtonElement,
+    pageW: document.getElementById("page-w") as HTMLInputElement,
+    pageH: document.getElementById("page-h") as HTMLInputElement,
+    pageMargin: document.getElementById("page-margin") as HTMLInputElement,
+    pageFont: document.getElementById("page-font") as HTMLInputElement,
 };
 
-const host = { container: els.columns };
+// The pager measures against the off-screen box, which CSS sizes to the
+// sheet's text area (page size minus margins). Window size is irrelevant.
+const host = { container: els.measure };
+
+// Keep in sync with --spread-gap in style.css.
+const SPREAD_GAP = 18;
 
 let settings: Settings = loadSettings();
 let book: Book | null = null;
@@ -49,17 +69,15 @@ let current = 0;
 let saveTimer: number | null = null;
 let toastTimer: number | null = null;
 
-// Fingerprint of everything pagination depends on. Startup produces a burst
-// of resize events (frame, menu bar, DPI) that would each re-paginate the
-// whole book for no reason; a relayout only runs when this key changes.
+// Fingerprint of everything pagination depends on - all of it settings.
+// Window size is deliberately absent: resizing must never re-paginate.
 let layoutKey = "";
 
 function currentLayoutKey(): string {
-    const rect = host.container.getBoundingClientRect();
     return [
-        Math.round(rect.width), Math.round(rect.height),
+        settings.pageWidth, settings.pageHeight, settings.margin,
         settings.orientation, settings.fontSize,
-        settings.lineHeight, settings.letterSpacing, settings.margin,
+        settings.lineHeight, settings.letterSpacing,
     ].join("|");
 }
 
@@ -108,20 +126,75 @@ function schedulePositionSave(): void {
     }, 400);
 }
 
-// ----------------------------------------------------------------- display ---
+// --------------------------------------------------------------- display ---
 
-function updateStatus(): void {
+/** Usable viewport area; the status bar steals its height from the sheets. */
+function availArea(): { w: number; h: number } {
+    const rect = els.page.getBoundingClientRect();
+    const statusH = els.status.hidden ? 0 : els.status.offsetHeight;
+    return { w: rect.width, h: rect.height - statusH };
+}
+
+/** 2 when the window is wide enough for a full-size spread, else 1. */
+function spreadCount(): number {
+    return availArea().w >= settings.pageWidth * 2 + SPREAD_GAP ? 2 : 1;
+}
+
+function updateStatus(visiblePages: number): void {
     if (!book || !laidOut) return;
     const page = laidOut.pages[current];
     if (!page) return;
+    const last = laidOut.pages[Math.min(current + visiblePages - 1, laidOut.pages.length - 1)];
+    if (!last) return;
 
     els.statusTitle.textContent = book.title;
     const pct = laidOut.totalChars > 0
         ? Math.round((page.startOffset / laidOut.totalChars) * 100)
         : 0;
+    const range = last.number > page.number ? `${page.number}–${last.number}` : `${page.number}`;
     els.statusPos.textContent =
-        `${page.number} / ${laidOut.pages.length} 頁 · ${pct}% · ${page.startOffset} 字`;
+        `${range} / ${laidOut.pages.length} 頁 · ${pct}% · ${page.startOffset} 字`;
     els.encoding.value = book.encoding;
+}
+
+/**
+ * Render the current spread: one or two fixed-size sheets, scaled down (never
+ * up) so they fit the window. Cheap - safe to call on every resize.
+ */
+function renderSpread(): void {
+    if (!laidOut || !book) {
+        els.spread.replaceChildren();
+        return;
+    }
+    const page = laidOut.pages[current];
+    if (!page) return;
+
+    const count = Math.min(spreadCount(), laidOut.pages.length - current);
+    const pages = laidOut.pages.slice(current, current + Math.max(1, count));
+
+    // Vertical books read right to left: the right sheet is the earlier
+    // page. DOM order is left to right, so reverse the pair.
+    const ordered = settings.orientation === "vertical" && pages.length === 2
+        ? [pages[1], pages[0]]
+        : pages;
+
+    const sheets = ordered.map((p) => {
+        const sheet = document.createElement("div");
+        sheet.className = "sheet";
+        const columns = document.createElement("div");
+        columns.className = "columns";
+        columns.appendChild(buildPageElement(p, headings));
+        sheet.appendChild(columns);
+        return sheet;
+    });
+    els.spread.replaceChildren(...sheets);
+
+    const avail = availArea();
+    const neededW = pages.length * settings.pageWidth + (pages.length - 1) * SPREAD_GAP;
+    const scale = Math.min(1, avail.w / neededW, avail.h / settings.pageHeight);
+    els.spread.style.transform = scale < 1 ? `scale(${scale})` : "";
+
+    updateStatus(pages.length);
 }
 
 function showWelcome(): void {
@@ -147,7 +220,7 @@ function closeBook(): void {
     });
     book = null;
     laidOut = null;
-    host.container.replaceChildren();
+    els.spread.replaceChildren();
     showWelcome();
 }
 
@@ -181,27 +254,6 @@ async function refreshRecent(): Promise<void> {
 
 // ------------------------------------------------------------------- open ---
 
-/**
- * Wait until the reader container stops changing size. Right after launch,
- * the frame, menu bar, and DPI settle in a burst of resizes; laying out
- * before they settle means paginating twice.
- */
-async function waitForStableContainer(maxWaitMs = 800): Promise<void> {
-    const start = performance.now();
-    let last = currentLayoutKey();
-    let stableSince = performance.now();
-    while (performance.now() - start < maxWaitMs) {
-        await new Promise((resolve) => setTimeout(resolve, 80));
-        const key = currentLayoutKey();
-        if (key !== last) {
-            last = key;
-            stableSince = performance.now();
-        } else if (performance.now() - stableSince >= 160) {
-            return;
-        }
-    }
-}
-
 async function openBook(next: Book, resumeAt?: number): Promise<void> {
     book = next;
     headings = headingMap(next);
@@ -221,23 +273,22 @@ async function openBook(next: Book, resumeAt?: number): Promise<void> {
         }
     }
 
-    await waitForStableContainer();
     await relayout(false, at, true);
     if (at > 0) toast(`${at} 字目から再開`);
 }
 
 /**
  * Re-run pagination. `restore` keeps the reader on the same text rather than
- * the same page index, which is what makes resizing and font changes harmless.
- * An explicit `resumeAt` overrides the lookup (used when opening a book).
+ * the same page index, which is what makes font and page-size changes
+ * harmless. An explicit `resumeAt` overrides the lookup (used when opening).
  */
 async function relayout(restore: boolean, resumeAt?: number, force = false): Promise<void> {
     if (!book) return;
 
     const key = currentLayoutKey();
     if (!force && laidOut && key === layoutKey) {
-        // Nothing that pagination depends on has changed; keep the pages.
-        renderCurrentPage();
+        // Nothing pagination depends on has changed; just re-show the pages.
+        renderSpread();
         return;
     }
     layoutKey = key;
@@ -260,16 +311,8 @@ async function relayout(restore: boolean, resumeAt?: number, force = false): Pro
     }
 
     current = pageForOffset(laidOut.pages, at);
-    renderCurrentPage();
+    renderSpread();
     schedulePositionSave();
-}
-
-function renderCurrentPage(): void {
-    if (!laidOut || !book) return;
-    const page = laidOut.pages[current];
-    if (!page) return;
-    renderPage(page, host, headings);
-    updateStatus();
 }
 
 async function openPath(path: string): Promise<void> {
@@ -307,30 +350,82 @@ function goTo(index: number): void {
     const clamped = Math.max(0, Math.min(laidOut.pages.length - 1, index));
     if (clamped === current) return;
     current = clamped;
-    renderCurrentPage();
+    renderSpread();
     schedulePositionSave();
 }
 
-/** Right-to-left flow: the next page is to the left. */
-function nextPage(): void { goTo(current + 1); }
-function prevPage(): void { goTo(current - 1); }
+/** Right-to-left flow: the next page is to the left. In a spread, a turn
+ *  moves a whole spread - two pages - like flipping a real book page. */
+function nextPage(): void { goTo(current + spreadCount()); }
+function prevPage(): void { goTo(current - spreadCount()); }
 
 function firstPage(): void { goTo(0); }
 function lastPage(): void { if (laidOut) goTo(laidOut.pages.length - 1); }
+
+// -------------------------------------------------------------- settings ---
+
+function renderPresetButtons(): void {
+    els.settingsPresets.replaceChildren();
+    for (const preset of PAGE_PRESETS) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = preset.name;
+        btn.classList.toggle("active",
+            preset.width === settings.pageWidth && preset.height === settings.pageHeight);
+        btn.addEventListener("click", () => {
+            setPageSize(settings, preset.width, preset.height);
+            els.pageW.value = String(settings.pageWidth);
+            els.pageH.value = String(settings.pageHeight);
+            renderPresetButtons();
+            void relayout(true);
+        });
+        els.settingsPresets.appendChild(btn);
+    }
+}
+
+function openSettings(): void {
+    els.pageW.value = String(settings.pageWidth);
+    els.pageH.value = String(settings.pageHeight);
+    els.pageMargin.value = String(settings.margin);
+    els.pageFont.value = String(settings.fontSize);
+    renderPresetButtons();
+    els.settings.hidden = false;
+    els.pageW.focus();
+}
+
+function closeSettings(): void {
+    els.settings.hidden = true;
+}
+
+// Typing a number fires per keystroke; re-paginating a whole book each time
+// would be silly, so changes are applied after a short pause.
+let settingsTimer: number | null = null;
+
+function onSettingsInput(): void {
+    if (settingsTimer !== null) window.clearTimeout(settingsTimer);
+    settingsTimer = window.setTimeout(() => {
+        setPageSize(settings, Number(els.pageW.value), Number(els.pageH.value));
+        setMargin(settings, Number(els.pageMargin.value));
+        setFontSize(settings, Number(els.pageFont.value));
+        els.pageW.value = String(settings.pageWidth);
+        els.pageH.value = String(settings.pageHeight);
+        renderPresetButtons();
+        void relayout(true);
+    }, 350);
+}
 
 // ---------------------------------------------------------------- events ---
 
 async function applyFont(size: number): Promise<void> {
     setFontSize(settings, size);
+    els.pageFont.value = String(settings.fontSize);
     await relayout(true);
-    updateStatus();
 }
 
 async function applyOrientation(): Promise<void> {
     toggleOrientation(settings);
     saveSettings(settings);
     await relayout(true);
-    updateStatus();
 }
 
 // Menu actions come from Go.
@@ -348,6 +443,10 @@ Events.On("honzuki:toggleorientation", () => {
     void applyOrientation();
 });
 
+Events.On("honzuki:settings", () => {
+    openSettings();
+});
+
 // Files dropped on the page. The runtime posts the drop to Go, which hands the
 // paths to this window's OnWindowEvent listener; that listener re-emits them as
 // a custom event so opening a dropped file follows the same path as the menu.
@@ -359,6 +458,10 @@ Events.On("honzuki:filesdropped", (ev: { data?: unknown }) => {
 // ------------------------------------------------------------- bindings ---
 
 els.welcomeOpen.addEventListener("click", () => void openViaDialog());
+els.settingsClose.addEventListener("click", closeSettings);
+for (const input of [els.pageW, els.pageH, els.pageMargin, els.pageFont]) {
+    input.addEventListener("input", onSettingsInput);
+}
 
 els.encoding.addEventListener("change", async () => {
     if (!book) return;
@@ -378,7 +481,18 @@ els.encoding.addEventListener("change", async () => {
 
 window.addEventListener("keydown", (ev: KeyboardEvent) => {
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
-    if (els.encoding.matches(":focus") || (ev.target as HTMLElement)?.tagName === "SELECT") return;
+
+    // The settings dialog owns the keyboard while it is open.
+    if (!els.settings.hidden) {
+        if (ev.key === "Escape") {
+            ev.preventDefault();
+            closeSettings();
+        }
+        return;
+    }
+
+    const tag = (ev.target as HTMLElement)?.tagName;
+    if (tag === "INPUT" || tag === "SELECT") return;
 
     switch (ev.key) {
         // Next page: left, down-arrow direction, or space.
@@ -421,13 +535,10 @@ window.addEventListener("keydown", (ev: KeyboardEvent) => {
     }
 });
 
-// Resizing changes the column length, so the whole book is re-paginated and the
-// reader is put back on the same character.
-let resizeTimer: number | null = null;
+// Resizing changes only the display - how many sheets fit and whether they
+// need scaling. Pagination is fixed by settings and stays untouched.
 window.addEventListener("resize", () => {
-    if (!book) return;
-    if (resizeTimer !== null) window.clearTimeout(resizeTimer);
-    resizeTimer = window.setTimeout(() => void relayout(true), 180);
+    if (book) renderSpread();
 });
 
 // ------------------------------------------------------------------ start ---
