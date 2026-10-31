@@ -98,6 +98,67 @@ export class Chapter {
 }
 
 /**
+ * DictEntry is one dictionary hit for a word.
+ */
+export class DictEntry {
+    "expression": string;
+    "reading": string;
+    "definitions": string[];
+    "tags": string[];
+    "source": string;
+
+    /**
+     * "term" or "pitch"
+     */
+    "kind": string;
+    "pitch"?: number[];
+
+    /** Creates a new DictEntry instance. */
+    constructor($$source: Partial<DictEntry> = {}) {
+        if (!("expression" in $$source)) {
+            this["expression"] = "";
+        }
+        if (!("reading" in $$source)) {
+            this["reading"] = "";
+        }
+        if (!("definitions" in $$source)) {
+            this["definitions"] = [];
+        }
+        if (!("tags" in $$source)) {
+            this["tags"] = [];
+        }
+        if (!("source" in $$source)) {
+            this["source"] = "";
+        }
+        if (!("kind" in $$source)) {
+            this["kind"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new DictEntry instance from a string or object.
+     */
+    static createFrom($$source: any = {}): DictEntry {
+        const $$createField2_0 = $$createType4;
+        const $$createField3_0 = $$createType4;
+        const $$createField6_0 = $$createType5;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("definitions" in $$parsedSource) {
+            $$parsedSource["definitions"] = $$createField2_0($$parsedSource["definitions"]);
+        }
+        if ("tags" in $$parsedSource) {
+            $$parsedSource["tags"] = $$createField3_0($$parsedSource["tags"]);
+        }
+        if ("pitch" in $$parsedSource) {
+            $$parsedSource["pitch"] = $$createField6_0($$parsedSource["pitch"]);
+        }
+        return new DictEntry($$parsedSource as Partial<DictEntry>);
+    }
+}
+
+/**
  * OpenedFile is what the open dialog returns to the frontend.
  */
 export class OpenedFile {
@@ -120,7 +181,7 @@ export class OpenedFile {
      * Creates a new OpenedFile instance from a string or object.
      */
     static createFrom($$source: any = {}): OpenedFile {
-        const $$createField1_0 = $$createType5;
+        const $$createField1_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("book" in $$parsedSource) {
             $$parsedSource["book"] = $$createField1_0($$parsedSource["book"]);
@@ -274,5 +335,7 @@ const $$createType0 = Paragraph.createFrom;
 const $$createType1 = $Create.Array($$createType0);
 const $$createType2 = Chapter.createFrom;
 const $$createType3 = $Create.Array($$createType2);
-const $$createType4 = Book.createFrom;
-const $$createType5 = $Create.Nullable($$createType4);
+const $$createType4 = $Create.Array($Create.Any);
+const $$createType5 = $Create.Array($Create.Any);
+const $$createType6 = Book.createFrom;
+const $$createType7 = $Create.Nullable($$createType6);

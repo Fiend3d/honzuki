@@ -10,8 +10,8 @@
 
 import { Events } from "@wailsio/runtime";
 
-import { BookService } from "../bindings/github.com/vlad/honzuki";
-import type { Book, Position, RecentEntry } from "../bindings/github.com/vlad/honzuki/models";
+import { BookService, DictionaryService } from "../bindings/github.com/vlad/honzuki";
+import type { Book, DictEntry, Position, RecentEntry } from "../bindings/github.com/vlad/honzuki/models";
 
 import {
     buildPageElement,
@@ -46,6 +46,7 @@ const els = {
     statusPos: document.getElementById("status-pos") as HTMLElement,
     encoding: document.getElementById("encoding") as HTMLSelectElement,
     toast: document.getElementById("toast") as HTMLElement,
+    statusDict: document.getElementById("status-dict") as HTMLElement,
     settings: document.getElementById("settings") as HTMLElement,
     settingsPresets: document.getElementById("settings-presets") as HTMLElement,
     settingsClose: document.getElementById("settings-close") as HTMLButtonElement,
@@ -160,6 +161,7 @@ function updateStatus(visiblePages: number): void {
     els.statusPos.textContent =
         `${range} / ${laidOut.pages.length} 頁 · ${pct}% · ${page.startOffset} 字`;
     els.encoding.value = book.encoding;
+    els.statusDict.textContent = dictNames.length > 0 ? `辞書 ${dictNames.length}` : "";
 }
 
 /**
@@ -240,6 +242,7 @@ function showBook(): void {
 /** Close the book and return to the start screen, keeping the read position. */
 function closeBook(): void {
     if (!book) return;
+    closeDictPopup();
     const path = book.path;
     const pos = currentPosition();
     BookService.SavePosition(path, pos).catch((err) => {
@@ -311,6 +314,7 @@ async function openBook(next: Book, resumeAt?: number): Promise<void> {
  */
 async function relayout(restore: boolean, resumeAt?: number, force = false): Promise<void> {
     if (!book) return;
+    closeDictPopup();
 
     const key = currentLayoutKey();
     if (!force && laidOut && key === layoutKey) {
@@ -374,6 +378,7 @@ function errorMessage(err: unknown): string {
 
 function goTo(index: number): void {
     if (!laidOut) return;
+    closeDictPopup();
     const clamped = Math.max(0, Math.min(laidOut.pages.length - 1, index));
     if (clamped === current) return;
     current = clamped;
@@ -554,6 +559,10 @@ window.addEventListener("keydown", (ev: KeyboardEvent) => {
             break;
         case "Escape":
             ev.preventDefault();
+            if (dictPopup) {
+                closeDictPopup();
+                break;
+            }
             closeBook();
             break;
         case "+":
@@ -579,6 +588,138 @@ window.addEventListener("resize", () => {
 
 // ------------------------------------------------------------------ start ---
 
+// ---------------------------------------------------------------------------
+// Dictionary lookup. Click a word: the characters from the clicked glyph
+// onward are sent to Go, which returns the longest headword it knows.
+// ---------------------------------------------------------------------------
+
+let dictPopup: HTMLElement | null = null;
+let dictNames: string[] = [];
+
+const DICT_SCAN_LEN = 14; // characters handed to the prefix matcher
+
+function caretTextAt(x: number, y: number): { text: string; data: string; offset: number } | null {
+    // caretRangeFromPoint is Chromium-only but this app is WebView2/WebKit.
+    const range = (document as Document & {
+        caretRangeFromPoint?: (x: number, y: number) => Range | null;
+    }).caretRangeFromPoint?.(x, y);
+    if (!range) return null;
+    const node = range.startContainer;
+    if (node.nodeType !== Node.TEXT_NODE || !node.textContent) return null;
+    const data = node.textContent;
+    const offset = range.startOffset;
+    if (offset >= data.length) return null;
+    return { text: data.slice(offset, offset + DICT_SCAN_LEN), data, offset };
+}
+
+function closeDictPopup(): void {
+    if (dictPopup) {
+        dictPopup.remove();
+        dictPopup = null;
+    }
+}
+
+function pitchLabel(entry: DictEntry): string {
+    if (!entry.pitch || entry.pitch.length === 0) return "";
+    return `ピッチ ${entry.pitch.map((p) => (p === 0 ? "0(平板)" : String(p))).join(" · ")}`;
+}
+
+function showDictPopup(x: number, y: number, entries: DictEntry[]): void {
+    closeDictPopup();
+    const box = document.createElement("div");
+    box.className = "dict-popup";
+
+    for (const entry of entries.slice(0, 6)) {
+        const item = document.createElement("div");
+        item.className = "dict-entry";
+
+        const head = document.createElement("div");
+        head.className = "dict-head";
+        const term = document.createElement("b");
+        term.textContent = entry.expression;
+        head.appendChild(term);
+        if (entry.reading && entry.reading !== entry.expression) {
+            const read = document.createElement("span");
+            read.className = "dict-reading";
+            read.textContent = entry.reading;
+            head.appendChild(read);
+        }
+        const src = document.createElement("span");
+        src.className = "dict-source";
+        src.textContent = entry.source;
+        head.appendChild(src);
+        item.appendChild(head);
+
+        if (entry.kind === "pitch") {
+            const line = document.createElement("div");
+            line.className = "dict-def";
+            line.textContent = pitchLabel(entry);
+            item.appendChild(line);
+        } else {
+            for (const def of entry.definitions.slice(0, 3)) {
+                for (const rawLine of def.split("\n").slice(0, 3)) {
+                    const line = document.createElement("div");
+                    line.className = "dict-def";
+                    line.textContent = rawLine.trim();
+                    item.appendChild(line);
+                }
+            }
+        }
+        box.appendChild(item);
+    }
+
+    document.body.appendChild(box);
+    dictPopup = box;
+
+    // Clamp inside the viewport.
+    const rect = box.getBoundingClientRect();
+    const px = Math.max(8, Math.min(x + 12, window.innerWidth - rect.width - 8));
+    const py = Math.max(8, Math.min(y + 12, window.innerHeight - rect.height - 8));
+    box.style.left = `${px}px`;
+    box.style.top = `${py}px`;
+}
+
+async function lookupAtPoint(x: number, y: number): Promise<void> {
+    if (dictNames.length === 0) return;
+    const caret = caretTextAt(x, y);
+    if (!caret) return;
+    try {
+        // The caret can land before or after the clicked glyph; try both.
+        let hits = await DictionaryService.LookupPrefix(caret.text);
+        // The caret can land after the clicked glyph; retry one character back.
+        if ((!hits || hits.length === 0) && caret.offset > 0) {
+            const back = caret.data.slice(caret.offset - 1, caret.offset - 1 + DICT_SCAN_LEN);
+            hits = await DictionaryService.LookupPrefix(back);
+        }
+        if (hits && hits.length > 0) {
+            showDictPopup(x, y, hits);
+        }
+    } catch {
+        // Lookup failures stay silent; the reader must keep working.
+    }
+}
+
+els.page.addEventListener("click", (ev) => {
+    const target = ev.target as HTMLElement;
+    if (!target.closest(".para")) return;
+    void lookupAtPoint(ev.clientX, ev.clientY);
+});
+
+document.addEventListener("click", (ev) => {
+    if (!dictPopup) return;
+    if ((ev.target as HTMLElement).closest(".dict-popup")) return;
+    if ((ev.target as HTMLElement).closest(".para")) return; // re-lookup handled above
+    closeDictPopup();
+});
+
+Events.On("honzuki:dictready", (ev: { data?: unknown }) => {
+    const data = ev.data as { dictionaries?: string[] } | undefined;
+    dictNames = data?.dictionaries ?? [];
+    if (dictNames.length > 0) {
+        dictNames = dictNames.map((n) => n.replace(/^\[.*?\]\s*/, "").replace(/\.zip$/, ""));
+    }
+});
+
 async function start(): Promise<void> {
     applySettings(settings);
 
@@ -592,6 +733,17 @@ async function start(): Promise<void> {
     }
 
     showWelcome();
+
+    // Dictionaries may already be loaded (or load a moment later); the
+    // dictready event covers the slow case.
+    try {
+        const status = await DictionaryService.Status();
+        if (status && status.length > 0) {
+            dictNames = status.map((n) => n.replace(/^\[.*?\]\s*/, "").replace(/\.zip$/, ""));
+        }
+    } catch {
+        // no dictionaries
+    }
 
     // A file passed on the command line opens after listeners exist, so the
     // handoff never races the event system.

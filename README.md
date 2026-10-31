@@ -1,59 +1,109 @@
-# Welcome to Your New Wails3 Project!
+# honzuki
 
-Congratulations on generating your Wails3 application! This README will guide you through the next steps to get your project up and running.
+日本語縦書きテキストリーダー — a Japanese vertical-text (縦書き) reader for
+plain-text books, built with [Wails v3](https://wails.io) (Go + WebView2).
 
-## Getting Started
+Open a `.txt`, read it as real typeset vertical pages: right-to-left columns,
+kinsoku line-breaking, fixed-size book pages, and a two-page spread when the
+window is wide enough. Click any word to look it up in Yomichan-format
+dictionaries, pitch accent included.
 
-1. Navigate to your project directory in the terminal.
+![MIT license](https://img.shields.io/badge/license-MIT-blue.svg)
 
-2. To run your application in development mode, use the following command:
+## Features
 
-   ```
-   wails3 dev
-   ```
+- **縦書き rendering** via CSS `writing-mode: vertical-rl` with proper
+  kinsoku (禁則処理) — punctuation never starts or ends a line
+- **Real book pages**: pages are fixed-size sheets (文庫 / 新書 / A5 / 大判
+  presets, or custom size, margin, and font size in `Ctrl+,`), not
+  window-sized. Resizing the window never re-paginates — it only shows one
+  sheet or a two-page spread, scaled to fit
+- **Dictionary lookup**: click a word to get headword, reading, definitions,
+  and pitch accent from [Yomichan dictionaries](https://github.com/SakiDailene/yomichan-dictionaries)
+- **Encoding handling**: automatic detection with a manual override for
+  Shift_JIS, EUC-JP, Windows-31J, UTF-8, and friends (Aozora Bunko files
+  just work)
+- **Reading position** saved per book, restored on reopen; recent-files list
+- **Fast**: a 440 KB book paginates in about a second; pagination uses an
+  analytic fit model instead of pure binary search
+- Drag & drop, `.txt` file association, `honzuki.exe book.txt`, native
+  Windows menu with shortcuts, custom app icon
 
-   This will start your application and enable hot-reloading for both frontend and backend changes.
+## Dictionary setup
 
-3. To build your application for production, use:
+Dictionaries are **not** bundled with honzuki (licensing). Download
+Yomichan/Yomitan-format dictionary packs (`.zip`) from
+**[SakiDailene/yomichan-dictionaries](https://github.com/SakiDailene/yomichan-dictionaries)**
+and drop them into a `dicts` folder:
 
-   ```
-   wails3 build
-   ```
+| Location | When to use |
+|---|---|
+| `dicts/` next to `honzuki.exe` | portable setup, travels with the exe |
+| `%APPDATA%\honzuki\dicts` | installed setup, shared between builds |
 
-   This will create a production-ready executable in the `build` directory.
+Good starting packs from the repo above:
 
-## Exploring Wails3 Features
+- **新和英** (`[JA-EN]`) — Japanese → English translations
+- **大辞泉** (`[Pitch]`) — pitch accent data (shows as `ピッチ …` in the popup)
 
-Now that you have your project set up, it's time to explore the features that Wails3 offers:
+Restart honzuki after adding dictionaries. The status bar shows `辞書 N` when
+N packs are loaded. Then **click a word** in the text: a card appears with
+the longest matching headword, its reading, definitions, and pitch. Click
+elsewhere or press `Esc` to dismiss it.
 
-1. **Check out the examples**: The best way to learn is by example. Visit the `examples` directory in the `v3/examples` directory to see various sample applications.
+honzuki accepts both JSONL and whole-array term banks, and keeps entries from
+partially corrupt zips rather than skipping them.
 
-2. **Run an example**: To run any of the examples, navigate to the example's directory and use:
+## Keyboard shortcuts
 
-   ```
-   go run .
-   ```
+| Key | Action |
+|---|---|
+| `←` / `→` | page turn (direction follows the book: 縦書き = `←` advances, 横書き = `→`) |
+| `Space` / `PageDown` / `PageUp` | advance / go back |
+| `Home` / `End` | first / last page |
+| `+` / `-`, `Ctrl+1/2/3` | font size |
+| `Ctrl+,` | page settings (size presets, margin, font) |
+| `Ctrl+M` | toggle 縦書き / 横書き |
+| `Ctrl+O` | open file |
+| `Esc` | close popup → close book |
+| `Ctrl+Q` | quit |
 
-   Note: Some examples may be under development during the alpha phase.
+## Building
 
-3. **Explore the documentation**: Visit the [Wails3 documentation](https://v3.wails.io/) for in-depth guides and API references.
+Prerequisites: Go 1.26+, Node 22+, and the Wails v3 CLI
+(`go install github.com/wailsapp/wails/v3/cmd/wails3@latest`).
 
-4. **Join the community**: Have questions or want to share your progress? Join the [Wails Discord](https://discord.gg/JDdSxwjhGf) or visit the [Wails discussions on GitHub](https://github.com/wailsapp/wails/discussions).
+```sh
+# 1. Frontend
+cd frontend && npm install && npm run build && cd ..
 
-## Project Structure
+# 2. Go binary (Windows)
+GOOS=windows CGO_ENABLED=0 go build -tags production -trimpath \
+  -buildvcs=false -ldflags="-w -s -H windowsgui" -o honzuki.exe .
+```
 
-Take a moment to familiarize yourself with your project structure:
+Optional regeneration steps:
 
-- `frontend/`: Contains your frontend code (HTML, CSS, JavaScript/TypeScript)
-- `main.go`: The entry point of your Go backend
-- `app.go`: Define your application structure and methods here
-- `wails.json`: Configuration file for your Wails project
+```sh
+# Service bindings (after changing Go service methods)
+wails3 generate bindings -ts -clean=true
 
-## Next Steps
+# App icon (exe + window icon) from assets/icon.svg
+go run ./tools/genicon && wails3 generate syso \
+  -icon assets/app.ico -manifest build/windows/wails.exe.manifest \
+  -out rsrc.syso -arch amd64
+```
 
-1. Modify the frontend in the `frontend/` directory to create your desired UI.
-2. Add backend functionality in `main.go`.
-3. Use `wails3 dev` to see your changes in real-time.
-4. When ready, build your application with `wails3 build`.
+## Where honzuki keeps its data
 
-Happy coding with Wails3! If you encounter any issues or have questions, don't hesitate to consult the documentation or reach out to the Wails community.
+Everything lives in `%APPDATA%\honzuki\`:
+
+- `positions.json` — reading positions and recent files
+- `EBWebView\` — WebView2 profile
+- `dicts\` — optional dictionary zips (the `dicts/` in this repo is
+  gitignored for licensing reasons; keep yours out of git too)
+
+## License
+
+MIT — see [LICENSE](LICENSE). Dictionary packs downloaded separately remain
+under their own licenses.

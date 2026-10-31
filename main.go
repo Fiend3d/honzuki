@@ -30,6 +30,7 @@ func main() {
 	// The service instance is created before application.New so the menu can
 	// close over it; its app pointer is injected right after.
 	books := &BookService{positions: store}
+	dicts := &DictionaryService{}
 
 	// A path given on the command line (file association, or `honzuki.exe
 	// book.txt`) opens once the frontend asks for it via PendingFile. Emitting
@@ -48,6 +49,7 @@ func main() {
 		Icon:        windowIcon,
 		Services: []application.Service{
 			application.NewService(books),
+			application.NewService(dicts),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -65,6 +67,10 @@ func main() {
 	})
 	books.app = app
 	books.pendingPath = &pendingPath
+	dicts.SetApp(app)
+	// Dictionary zips can be tens of megabytes; load them in the background so
+	// the first book opens at full speed either way.
+	go dicts.Scan()
 
 	// Decide the opening size before the window is created.
 	windowWidth, windowHeight := initialWindowSize()
