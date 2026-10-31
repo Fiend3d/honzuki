@@ -489,3 +489,13 @@ kbd {
     background: #f3d9a4;
     color: inherit;
 }
+
+/* Pitch accent badge on the headword line. */
+.dict-pitch {
+    font-size: 11px;
+    padding: 0.1em 0.55em;
+    border-radius: 999px;
+    background: #efe6d2;
+    color: var(--ink-soft);
+    white-space: nowrap;
+}

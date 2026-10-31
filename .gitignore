@@ -11,4 +11,5 @@ build/android/overlay.json
 build/android/gen/honzuki.exe
 *.log
 honzuki.exe
-dicts/
+dicts/*
+!dicts/README.md

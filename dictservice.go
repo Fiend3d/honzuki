@@ -129,16 +129,58 @@ func (s *DictionaryService) LookupPrefix(text string) []DictEntry {
 		}
 		key := string(runes[:n])
 		if hits := s.entries[key]; len(hits) > 0 {
-			out := make([]DictEntry, 0, len(hits))
-			out = append(out, hits...)
-			sort.SliceStable(out, func(i, j int) bool {
-				// Terms (translations) first, then pitch info.
-				return out[i].Kind < out[j].Kind
-			})
-			return out
+			return mergePitch(hits)
 		}
 	}
 	return nil
+}
+
+// mergePitch folds pitch-accent entries into the term entries they belong to
+// so the popup shows one line per word with a small pitch badge, instead of
+// a separate entry that clutters the card. Pitch data for words with no
+// translation entry is kept as its own entry.
+func mergePitch(hits []DictEntry) []DictEntry {
+	out := make([]DictEntry, 0, len(hits))
+
+	for i := range hits {
+		if hits[i].Kind != "term" {
+			continue
+		}
+		term := hits[i]
+		for j := range hits {
+			if hits[j].Kind == "pitch" && pitchMatches(term, hits[j]) {
+				term.Pitch = append(term.Pitch, hits[j].Pitch...)
+			}
+		}
+		out = append(out, term)
+	}
+
+	for i := range hits {
+		if hits[i].Kind == "pitch" && !pitchCovered(hits[i], out) {
+			out = append(out, hits[i])
+		}
+	}
+
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].Kind < out[j].Kind
+	})
+	return out
+}
+
+func pitchMatches(term, pitch DictEntry) bool {
+	return term.Expression == pitch.Expression ||
+		(term.Reading != "" && term.Reading == pitch.Reading) ||
+		term.Reading == pitch.Expression ||
+		pitch.Reading == term.Expression
+}
+
+func pitchCovered(pitch DictEntry, terms []DictEntry) bool {
+	for _, t := range terms {
+		if t.Kind == "term" && pitchMatches(t, pitch) {
+			return true
+		}
+	}
+	return false
 }
 
 // loadDict reads one zip and adds its terms to the shared map.

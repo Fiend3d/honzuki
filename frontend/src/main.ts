@@ -640,6 +640,14 @@ function showDictPopup(x: number, y: number, entries: DictEntry[]): void {
             read.textContent = entry.reading;
             head.appendChild(read);
         }
+        // Pitch rides along as a small badge on the headword line rather
+        // than as its own entry.
+        if (entry.kind !== "pitch" && entry.pitch && entry.pitch.length > 0) {
+            const badge = document.createElement("span");
+            badge.className = "dict-pitch";
+            badge.textContent = pitchLabel(entry);
+            head.appendChild(badge);
+        }
         const src = document.createElement("span");
         src.className = "dict-source";
         src.textContent = entry.source;
