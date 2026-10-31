@@ -8,7 +8,7 @@
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wailsio/runtime";
+import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Create } from "@wailsio/runtime";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -17,15 +17,19 @@ import * as $models from "./models.js";
 /**
  * Encodings returns the manual override list for the UI dropdown.
  */
-export function Encodings(): $CancellablePromise<string[] | null> {
-    return $Call.ByID(2758386894);
+export function Encodings(): $CancellablePromise<string[]> {
+    return $Call.ByID(2758386894).then(($result: any) => {
+        return $$createType0($result);
+    });
 }
 
 /**
  * Load reads, decodes, and structures a file.
  */
 export function Load(path: string): $CancellablePromise<$models.Book | null> {
-    return $Call.ByID(3723463392, path);
+    return $Call.ByID(3723463392, path).then(($result: any) => {
+        return $$createType2($result);
+    });
 }
 
 /**
@@ -36,14 +40,27 @@ export function Load(path: string): $CancellablePromise<$models.Book | null> {
  * open. Errors are returned as errors so the frontend can show them.
  */
 export function OpenDialog(): $CancellablePromise<$models.OpenedFile | null> {
-    return $Call.ByID(207983740);
+    return $Call.ByID(207983740).then(($result: any) => {
+        return $$createType4($result);
+    });
+}
+
+/**
+ * PendingFile returns a path passed on the command line, once. The frontend
+ * calls it at startup; a second call returns "" so a reload does not reopen.
+ */
+export function PendingFile(): $CancellablePromise<string> {
+    return $Call.ByID(3202970713);
 }
 
 /**
  * PositionFor returns the saved reading position for a path.
  */
 export function PositionFor(path: string): $CancellablePromise<[$models.Position, boolean]> {
-    return $Call.ByID(4181794346, path);
+    return $Call.ByID(4181794346, path).then(($result: any) => {
+        $result[0] = $$createType5($result[0]);
+        return $result;
+    });
 }
 
 /**
@@ -56,8 +73,10 @@ export function Quit(): $CancellablePromise<void> {
 /**
  * Recent returns the recently opened files, newest first.
  */
-export function Recent(): $CancellablePromise<$models.RecentEntry[] | null> {
-    return $Call.ByID(2444402007);
+export function Recent(): $CancellablePromise<$models.RecentEntry[]> {
+    return $Call.ByID(2444402007).then(($result: any) => {
+        return $$createType7($result);
+    });
 }
 
 /**
@@ -65,7 +84,18 @@ export function Recent(): $CancellablePromise<$models.RecentEntry[] | null> {
  * for the rare case where auto-detection guessed wrong.
  */
 export function Reinterpret(path: string, encoding: string): $CancellablePromise<$models.Book | null> {
-    return $Call.ByID(3170091874, path, encoding);
+    return $Call.ByID(3170091874, path, encoding).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
+/**
+ * Report logs a frontend message on the Go side. WebView2 does not forward
+ * console.log to the host process on Windows, so the pager sends its layout
+ * timings through here; they appear in the Go log for benchmarking.
+ */
+export function Report(message: string): $CancellablePromise<void> {
+    return $Call.ByID(248926030, message);
 }
 
 /**
@@ -75,3 +105,13 @@ export function Reinterpret(path: string, encoding: string): $CancellablePromise
 export function SavePosition(path: string, pos: $models.Position): $CancellablePromise<void> {
     return $Call.ByID(3426663886, path, pos);
 }
+
+// Private type creation functions
+const $$createType0 = $Create.Array($Create.Any);
+const $$createType1 = $models.Book.createFrom;
+const $$createType2 = $Create.Nullable($$createType1);
+const $$createType3 = $models.OpenedFile.createFrom;
+const $$createType4 = $Create.Nullable($$createType3);
+const $$createType5 = $models.Position.createFrom;
+const $$createType6 = $models.RecentEntry.createFrom;
+const $$createType7 = $Create.Array($$createType6);

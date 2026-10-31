@@ -31,6 +31,17 @@ func main() {
 	// close over it; its app pointer is injected right after.
 	books := &BookService{positions: store}
 
+	// A path given on the command line (file association, or `honzuki.exe
+	// book.txt`) opens once the frontend asks for it via PendingFile. Emitting
+	// from the WindowRuntimeReady event would race the frontend's own event
+	// listeners, which register only after the runtime announces itself.
+	pendingPath := ""
+	if len(os.Args) > 1 {
+		if info, err := os.Stat(os.Args[1]); err == nil && !info.IsDir() {
+			pendingPath = os.Args[1]
+		}
+	}
+
 	app := application.New(application.Options{
 		Name:        "honzuki",
 		Description: "日本語縦書きテキストリーダー",
@@ -53,6 +64,7 @@ func main() {
 		},
 	})
 	books.app = app
+	books.pendingPath = &pendingPath
 
 	// Decide the opening size before the window is created.
 	windowWidth, windowHeight := initialWindowSize()
@@ -104,9 +116,11 @@ func main() {
 	// The frontend restores the saved position, then reports the book back.
 	app.Event.OnApplicationEvent(events.Common.ApplicationOpenedWithFile,
 		func(event *application.ApplicationEvent) {
-			if path := event.Context().Filename(); path != "" {
-				emit(app, "honzuki:filesdropped", []string{path})
-			}
+			// Wails recognised the file association. The frontend picks the
+			// path up itself via BookService.PendingFile; emitting an event
+			// here would race listeners that do not exist yet (and double-open
+			// alongside PendingFile).
+			_ = event.Context().Filename()
 		})
 
 	err := app.Run()

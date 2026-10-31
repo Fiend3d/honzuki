@@ -72,35 +72,26 @@ export function measureColumnLength(host: MeasureHost): number {
     return Math.max(MIN_COLUMN_PX, Math.floor(length));
 }
 
-/**
- * Build the DOM for one candidate page and return it. The element is detached;
- * the caller appends it inside the styled container so measurement is exact.
- */
-function buildPageElement(slices: ParagraphSlice[], headingByPara: Map<number, string>): HTMLElement {
-    const column = document.createElement("div");
-    column.className = "column";
+/** Build the <p> for one slice, honouring headings and U+2028 line breaks. */
+function buildParaNode(slice: ParagraphSlice, headingByPara: Map<number, string>): HTMLElement {
+    const isHeading = headingByPara.has(slice.paragraph.index) && slice.from === 0;
+    const p = document.createElement("p");
+    p.className = isHeading ? "para chapter-heading" : "para";
+    if (slice.continued) p.classList.add("continuation");
 
-    for (const slice of slices) {
-        const isHeading = headingByPara.has(slice.paragraph.index) && slice.from === 0;
-        const p = document.createElement("p");
-        p.className = isHeading ? "para chapter-heading" : "para";
-        if (slice.continued) p.classList.add("continuation");
-
-        // U+2028 marks a line break inside a paragraph; render it as a real
-        // break so intra-paragraph line structure survives pagination.
-        const text = slice.paragraph.text.slice(slice.from, slice.from + slice.length);
-        if (isHeading) {
-            p.textContent = text;
-        } else {
-            const parts = text.split("\u2028");
-            parts.forEach((part, i) => {
-                if (i > 0) p.appendChild(document.createElement("br"));
-                p.appendChild(document.createTextNode(part));
-            });
-        }
-        column.appendChild(p);
+    // U+2028 marks a line break inside a paragraph; render it as a real
+    // break so intra-paragraph line structure survives pagination.
+    const text = slice.paragraph.text.slice(slice.from, slice.from + slice.length);
+    if (isHeading) {
+        p.textContent = text;
+    } else {
+        const parts = text.split("\u2028");
+        parts.forEach((part, i) => {
+            if (i > 0) p.appendChild(document.createElement("br"));
+            p.appendChild(document.createTextNode(part));
+        });
     }
-    return column;
+    return p;
 }
 
 /** How far an element's content overflows the page box, in pixels. */
@@ -142,8 +133,10 @@ function estimateCapacity(host: MeasureHost): number {
 /**
  * Cut a book into pages by measuring candidate pages against the live CSS.
  *
- * `startOffset` resumes at a character position, so a saved position lands on
- * the same text after any change to window size or font.
+ * Measurement is incremental: each page keeps one live column element and
+ * paragraphs are appended to it as they are accepted (and removed again when
+ * rejected). Rebuilding the whole page for every trial made layout quadratic
+ * in paragraphs-per-page.
  */
 export function layoutBook(
     book: Book,
@@ -151,56 +144,55 @@ export function layoutBook(
     onProgress?: (done: number, total: number) => void,
 ): LaidOutBook {
     const paragraphs = book.paragraphs ?? [];
-    const headingByPara = new Map<number, string>();
-    for (const c of book.chapters ?? []) {
-        headingByPara.set(c.paraIdx, c.title);
-    }
+    const headingByPara = headingMap(book);
 
-    const totalChars = paragraphs.reduce((sum, p) => sum + runeLen(p.text), 0);
+    // Rune lengths are computed once per paragraph. The fill loop asks for
+    // the same paragraph's length on every trial; re-counting a 1600-character
+    // paragraph per trial dominated the layout time before.
+    const lengths = paragraphs.map((p) => runeLen(p.text));
+    const totalChars = lengths.reduce((sum, n) => sum + n, 0);
+
     const pages: Page[] = [];
-
     const capacity = estimateCapacity(host);
 
     let paraIdx = 0;
     let paraOffset = 0;
     let globalOffset = 0;
-    let done = 0;
 
     while (paraIdx < paragraphs.length) {
+        const startOffset = globalOffset;
         const slices: ParagraphSlice[] = [];
-        let candidatePara = paraIdx;
-        let candidateOffset = paraOffset;
-        let candidateGlobal = globalOffset;
+        const column = document.createElement("div");
+        column.className = "column";
+        host.container.replaceChildren(column);
 
         // Fill the page with whole paragraphs while it still fits.
-        while (candidatePara < paragraphs.length) {
-            const para = paragraphs[candidatePara];
-            const remaining = runeLen(para.text) - candidateOffset;
+        while (paraIdx < paragraphs.length) {
+            const remaining = lengths[paraIdx] - paraOffset;
 
             // A paragraph longer than a full page can never fit whole;
-            // measuring it would build a multi-page DOM for nothing. Skip
+            // measuring it would grow a multi-page DOM for nothing. Skip
             // straight to the character fit below.
             if (remaining > capacity) break;
 
-            const trial = [...slices, {
-                paragraph: para,
-                from: candidateOffset,
+            const slice: ParagraphSlice = {
+                paragraph: paragraphs[paraIdx],
+                from: paraOffset,
                 length: remaining,
-                continued: candidateOffset > 0,
+                continued: paraOffset > 0,
                 continues: false,
-            }];
+            };
+            const node = buildParaNode(slice, headingByPara);
+            column.appendChild(node);
 
-            const el = buildPageElement(trial, headingByPara);
-            host.container.replaceChildren(el);
-
-            if (measureOverflow(el, host) <= 0) {
-                slices.push(trial[trial.length - 1]);
-                candidatePara += 1;
-                candidateOffset = 0;
-                candidateGlobal += remaining;
-                continue;
+            if (measureOverflow(column, host) > 0) {
+                column.removeChild(node);
+                break;
             }
-            break;
+            slices.push(slice);
+            globalOffset += remaining;
+            paraIdx += 1;
+            paraOffset = 0;
         }
 
         // The page stopped at a paragraph that does not fit whole. Fill the
@@ -208,57 +200,57 @@ export function layoutBook(
         // page here would leave a hole on the left of every page that
         // precedes a long paragraph, and the hole moves when the window is
         // resized, which reads as text disappearing.
-        if (candidatePara < paragraphs.length) {
-            const para = paragraphs[candidatePara];
-            const remaining = runeLen(para.text) - candidateOffset;
-            const taken = fitParagraphByCharacter(para, candidateOffset, host, capacity, headingByPara, slices);
+        if (paraIdx < paragraphs.length) {
+            const remaining = lengths[paraIdx] - paraOffset;
+            const taken = fitParagraphByCharacter(
+                paragraphs[paraIdx], paraOffset, host, column, capacity, headingByPara,
+            );
             if (taken > 0) {
-                slices.push({
-                    paragraph: para,
-                    from: candidateOffset,
+                const slice: ParagraphSlice = {
+                    paragraph: paragraphs[paraIdx],
+                    from: paraOffset,
                     length: taken,
-                    continued: candidateOffset > 0,
-                    continues: candidateOffset + taken < remaining,
-                });
-                candidateOffset += taken;
-                candidateGlobal += taken;
-                if (candidateOffset >= runeLen(para.text)) {
-                    candidatePara += 1;
-                    candidateOffset = 0;
+                    continued: paraOffset > 0,
+                    continues: paraOffset + taken < remaining,
+                };
+                column.appendChild(buildParaNode(slice, headingByPara));
+                slices.push(slice);
+                globalOffset += taken;
+                paraOffset += taken;
+                if (paraOffset >= lengths[paraIdx]) {
+                    paraIdx += 1;
+                    paraOffset = 0;
                 }
             } else if (slices.length === 0) {
-                // Nothing fits at all (degenerate layout). Advance one character
-                // so the loop always makes progress instead of spinning.
+                // Nothing fits at all (degenerate layout). Advance one
+                // character so the loop always makes progress instead of
+                // spinning.
+                const last = paraOffset + 1 >= lengths[paraIdx];
                 slices.push({
-                    paragraph: para,
-                    from: candidateOffset,
+                    paragraph: paragraphs[paraIdx],
+                    from: paraOffset,
                     length: 1,
-                    continued: candidateOffset > 0,
-                    continues: candidateOffset + 1 < runeLen(para.text),
+                    continued: paraOffset > 0,
+                    continues: !last,
                 });
-                candidatePara += candidateOffset + 1 >= runeLen(para.text) ? 1 : 0;
-                candidateOffset = candidateOffset + 1 >= runeLen(para.text) ? 0 : candidateOffset + 1;
-                candidateGlobal += 1;
+                column.appendChild(buildParaNode(slices[0], headingByPara));
+                globalOffset += 1;
+                paraOffset += 1;
+                if (last) {
+                    paraIdx += 1;
+                    paraOffset = 0;
+                }
             }
         }
 
-        const startOffset = globalOffset;
-        const endOffset = candidateGlobal;
         pages.push({
             startOffset,
-            endOffset,
+            endOffset: globalOffset,
             number: pages.length + 1,
             slices,
         });
 
-        paraIdx = candidatePara;
-        paraOffset = candidateOffset;
-        globalOffset = candidateGlobal;
-
-        done = globalOffset;
-        onProgress?.(done, totalChars);
-
-        if (paraIdx >= paragraphs.length && paraOffset === 0) break;
+        onProgress?.(globalOffset, totalChars);
     }
 
     // Leave the container empty; the pager renders pages from here.
@@ -268,18 +260,19 @@ export function layoutBook(
 }
 
 /**
- * Binary-search the largest prefix of a paragraph that fits one page.
+ * Binary-search the largest prefix of a paragraph that fits the space left in
+ * `column` (which already holds the page's accepted slices).
  *
- * Binary search rather than character-by-character: a long paragraph would
- * otherwise need one DOM measurement per character.
+ * The trial node is appended to the live column and removed again, so each
+ * step measures once without rebuilding what is already accepted.
  */
 function fitParagraphByCharacter(
     para: Paragraph,
     from: number,
     host: MeasureHost,
+    column: HTMLElement,
     capacity: number,
     headingByPara: Map<number, string>,
-    base: ParagraphSlice[] = [],
 ): number {
     const chars = runeLen(para.text);
     let lo = 1;
@@ -291,21 +284,22 @@ function fitParagraphByCharacter(
 
     while (lo <= hi) {
         const mid = (lo + hi) >> 1;
-        const el = buildPageElement([...base, {
+        const node = buildParaNode({
             paragraph: para,
             from,
             length: mid,
             continued: from > 0,
             continues: false,
-        }], headingByPara);
-        host.container.replaceChildren(el);
+        }, headingByPara);
+        column.appendChild(node);
 
-        if (measureOverflow(el, host) <= 0) {
+        if (measureOverflow(column, host) <= 0) {
             best = mid;
             lo = mid + 1;
         } else {
             hi = mid - 1;
         }
+        column.removeChild(node);
     }
     return best;
 }
@@ -327,13 +321,23 @@ export function pageForOffset(pages: Page[], offset: number): number {
     return lo;
 }
 
+/** Build the DOM for one stored page. */
+function buildPageElement(page: Page, headingByPara: Map<number, string>): HTMLElement {
+    const column = document.createElement("div");
+    column.className = "column";
+    for (const slice of page.slices) {
+        column.appendChild(buildParaNode(slice, headingByPara));
+    }
+    return column;
+}
+
 /** Render a page's DOM into the container. */
 export function renderPage(
     page: Page,
     host: MeasureHost,
     headingByPara: Map<number, string>,
 ): void {
-    host.container.replaceChildren(buildPageElement(page.slices, headingByPara));
+    host.container.replaceChildren(buildPageElement(page, headingByPara));
 }
 
 export function headingMap(book: Book): Map<number, string> {

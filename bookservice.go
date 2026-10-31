@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,6 +60,22 @@ type BookService struct {
 	// lastDir remembers where the file dialog last opened, so consecutive
 	// opens start from a useful place.
 	lastDir string
+
+	// pendingPath is a file given on the command line. The frontend fetches
+	// it with PendingFile once its event listeners exist; the pointer is
+	// shared with main so both see the same value.
+	pendingPath *string
+}
+
+// PendingFile returns a path passed on the command line, once. The frontend
+// calls it at startup; a second call returns "" so a reload does not reopen.
+func (s *BookService) PendingFile() string {
+	if s.pendingPath == nil {
+		return ""
+	}
+	path := *s.pendingPath
+	*s.pendingPath = ""
+	return path
 }
 
 // NewBookService wires the service to the application. The app pointer is
@@ -246,3 +263,10 @@ func (s *BookService) SavePosition(path string, pos Position) error {
 
 // Quit closes the application; used by the in-app UI as well as the menu.
 func (s *BookService) Quit() { s.app.Quit() }
+
+// Report logs a frontend message on the Go side. WebView2 does not forward
+// console.log to the host process on Windows, so the pager sends its layout
+// timings through here; they appear in the Go log for benchmarking.
+func (s *BookService) Report(message string) {
+	log.Printf("[frontend] %s", message)
+}

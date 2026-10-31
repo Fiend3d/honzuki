@@ -6,7 +6,7 @@ export {
     BookService
 };
 
-export type {
+export {
     Book,
     Chapter,
     OpenedFile,

@@ -49,6 +49,20 @@ let current = 0;
 let saveTimer: number | null = null;
 let toastTimer: number | null = null;
 
+// Fingerprint of everything pagination depends on. Startup produces a burst
+// of resize events (frame, menu bar, DPI) that would each re-paginate the
+// whole book for no reason; a relayout only runs when this key changes.
+let layoutKey = "";
+
+function currentLayoutKey(): string {
+    const rect = host.container.getBoundingClientRect();
+    return [
+        Math.round(rect.width), Math.round(rect.height),
+        settings.orientation, settings.fontSize,
+        settings.lineHeight, settings.letterSpacing, settings.margin,
+    ].join("|");
+}
+
 // ------------------------------------------------------------------- toast ---
 
 function toast(message: string): void {
@@ -167,32 +181,85 @@ async function refreshRecent(): Promise<void> {
 
 // ------------------------------------------------------------------- open ---
 
-async function openBook(next: Book): Promise<void> {
+/**
+ * Wait until the reader container stops changing size. Right after launch,
+ * the frame, menu bar, and DPI settle in a burst of resizes; laying out
+ * before they settle means paginating twice.
+ */
+async function waitForStableContainer(maxWaitMs = 800): Promise<void> {
+    const start = performance.now();
+    let last = currentLayoutKey();
+    let stableSince = performance.now();
+    while (performance.now() - start < maxWaitMs) {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        const key = currentLayoutKey();
+        if (key !== last) {
+            last = key;
+            stableSince = performance.now();
+        } else if (performance.now() - stableSince >= 160) {
+            return;
+        }
+    }
+}
+
+async function openBook(next: Book, resumeAt?: number): Promise<void> {
     book = next;
     headings = headingMap(next);
+    // A new book starts from its own saved position, never from wherever the
+    // previous book happened to be showing.
+    laidOut = null;
+    current = 0;
     showBook();
-    await relayout(true);
-    updateStatus();
+
+    let at = resumeAt ?? 0;
+    if (resumeAt === undefined) {
+        try {
+            const [saved, found] = await BookService.PositionFor(next.path);
+            if (found && saved && saved.charOffset > 0) at = saved.charOffset;
+        } catch {
+            // A failed lookup just means the book opens from the start.
+        }
+    }
+
+    await waitForStableContainer();
+    await relayout(false, at, true);
+    if (at > 0) toast(`${at} 字目から再開`);
 }
 
 /**
- * Re-run pagination. `restore` keeps the reader on the same text rather than the
- * same page index, which is what makes resizing and font changes harmless.
+ * Re-run pagination. `restore` keeps the reader on the same text rather than
+ * the same page index, which is what makes resizing and font changes harmless.
+ * An explicit `resumeAt` overrides the lookup (used when opening a book).
  */
-async function relayout(restore: boolean): Promise<void> {
+async function relayout(restore: boolean, resumeAt?: number, force = false): Promise<void> {
     if (!book) return;
 
-    const resumeAt = restore ? laidOut?.pages[current]?.startOffset ?? 0 : 0;
+    const key = currentLayoutKey();
+    if (!force && laidOut && key === layoutKey) {
+        // Nothing that pagination depends on has changed; keep the pages.
+        renderCurrentPage();
+        return;
+    }
+    layoutKey = key;
 
+    const at = resumeAt ?? (restore ? laidOut?.pages[current]?.startOffset ?? 0 : 0);
+
+    const t0 = performance.now();
     laidOut = layoutBook(book, host);
+    const layoutMs = Math.round(performance.now() - t0);
+    // WebView2 does not forward console.log to Go, so timings go through the
+    // service and land in the Go log (benchmarking and bug reports both use it).
+    BookService.Report(`layout: ${laidOut.pages.length} pages in ${layoutMs} ms`).catch(() => {});
+
     if (laidOut.pages.length === 0) {
+        laidOut = null;
         toast("表示できるテキストがありません");
         showWelcome();
         book = null;
         return;
     }
 
-    current = pageForOffset(laidOut.pages, restore ? resumeAt : 0);
+    current = pageForOffset(laidOut.pages, at);
     renderCurrentPage();
     schedulePositionSave();
 }
@@ -209,17 +276,9 @@ async function openPath(path: string): Promise<void> {
     try {
         const next = await BookService.Load(path);
         if (!next) return;
-
-        // PositionFor returns [position, found]; the saved offset decides where
-        // the reader lands after pagination.
-        const [saved, found] = await BookService.PositionFor(path);
+        // openBook restores the saved position itself, so dropped files,
+        // menu picks, and the start screen all resume the same way.
         await openBook(next);
-
-        if (found && saved && saved.charOffset > 0) {
-            current = pageForOffset(laidOut!.pages, saved.charOffset);
-            renderCurrentPage();
-            toast(`${saved.charOffset} 字目から再開`);
-        }
     } catch (err) {
         toast(errorMessage(err));
     }
@@ -308,9 +367,9 @@ els.encoding.addEventListener("change", async () => {
         const next = await BookService.Reinterpret(book.path, chosen);
         if (!next) return;
         const resumeAt = laidOut?.pages[current]?.startOffset ?? 0;
-        await openBook(next);
-        current = pageForOffset(laidOut!.pages, resumeAt);
-        renderCurrentPage();
+        // Re-decoding the same file must land on the same text, not on the
+        // saved position, which may be older than what is on screen now.
+        await openBook(next, resumeAt);
         toast(`文字コードを ${next.encoding} で読み直しました`);
     } catch (err) {
         toast(errorMessage(err));
@@ -386,6 +445,15 @@ async function start(): Promise<void> {
     }
 
     showWelcome();
+
+    // A file passed on the command line opens after listeners exist, so the
+    // handoff never races the event system.
+    try {
+        const pending = await BookService.PendingFile();
+        if (pending) await openPath(pending);
+    } catch (err) {
+        toast(errorMessage(err));
+    }
 }
 
 void start();
