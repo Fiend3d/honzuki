@@ -15,6 +15,7 @@
     --desk: #e7e0d3;
     --ink: #2b2622;
     --ink-soft: #6b6257;
+    --pitch-line: #b0652f;
     --rule: #d9d1c4;
 
     /* Reading metrics, driven by settings.ts. */
@@ -500,22 +501,47 @@ kbd {
     white-space: nowrap;
 }
 
-/* Kana reading with its pitch contour line above it. The reading uses a
-   fixed size so the diagram's per-mora x positions line up with the glyphs
-   (full-width kana are exactly 1em wide). */
-.dict-reading-wrap {
+/* Pitch riding on the kana (jpdb-style): a rule across the top of high
+   moras and across the bottom of low ones, with a gradient segment between
+   neighbours drawing the step. Everything stays on one text line. */
+.dict-pitch-reading {
     display: inline-flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 1px;
-}
-
-.dict-reading-wrap .dict-reading {
-    font-size: 15px;
+    align-items: stretch;
     color: var(--ink);
+    font-size: 15px;
 }
 
-.dict-pitch-line {
-    color: #b0652f;
-    line-height: 1;
+.dict-pitch-reading > span {
+    display: inline-block;
+    background-repeat: no-repeat;
+    padding: 2px 1px;
+    margin: 0 -1px;
+    background-color: var(--paper);
 }
+
+/* High mora: rule across the top. */
+.dict-pitch-reading .pitch-high {
+    background-image: linear-gradient(var(--pitch-line), var(--pitch-line));
+    background-position: top center;
+    background-size: 100% 2px;
+}
+
+/* Low mora: rule across the bottom. */
+.dict-pitch-reading .pitch-low {
+    background-image: linear-gradient(var(--pitch-line), var(--pitch-line));
+    background-position: bottom center;
+    background-size: 100% 2px;
+}
+
+/* Step between a high and a low mora (or back): a diagonal-ish drop band. */
+.dict-pitch-reading .link-drop {
+    background-image: linear-gradient(to bottom, var(--pitch-line) 0%, var(--pitch-line) 100%);
+    background-position: center;
+    background-size: 2px 100%;
+    background-position: left center;
+}
+
+.dict-pitch-reading .link-flat { box-shadow: none; }
+
+/* Empty tail mora for the 尾高 drop after the word. */
+.dict-pitch-reading .pitch-low.tail { min-width: 6px; }

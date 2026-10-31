@@ -637,62 +637,55 @@ function moraClusters(kana: string): string[] | null {
     return clusters.length > 0 ? clusters : null;
 }
 
-// The classic pitch contour drawn ABOVE the kana reading: one point per mora,
-// each centered over the characters of that mora, dropping at the accent
-// position. 0 = 平板 (flat, no drop); N = drop after mora N;
+// The classic pitch contour, drawn jpdb-style: the kana stay inline on one
+// line, and each mora carries a line segment as a background - high moras
+// get a rule across the TOP of the glyph, low moras across the BOTTOM, and
+// the gradient between two moras renders the drop. No extra height.
+// 0 = 平板 (flat high, no drop); N = drop after mora N;
 // N = mora count = 尾高 (first mora low, drop after the word).
-function pitchDiagram(reading: string, pitchPos: number): Element | null {
+function pitchSpans(reading: string, pitchPos: number): { high: boolean; text: string }[] | null {
     const clusters = moraClusters(reading);
-    if (!clusters || clusters.length < 2) return null;
+    if (!clusters) return null;
 
     const morae = clusters.length;
     const pos = Math.min(Math.max(pitchPos, 0), morae);
+    const spans: { high: boolean; text: string }[] = [];
 
-    // Kana are monospaced, so a cluster's width is its character count.
-    // Lay points out over the character budget to keep them aligned.
-    const charW = 15; // matches .dict-reading-wrap .dict-reading font-size
-    const totalChars = clusters.reduce((n, c) => n + c.length, 0);
-    const w = totalChars * charW;
-    const hi = 3;
-    const lo = 13;
-
-    const pts: [number, number][] = [];
-    let charsBefore = 0;
     clusters.forEach((cluster, i) => {
-        const cx = (charsBefore + cluster.length / 2) * charW;
-        charsBefore += cluster.length;
         let high: boolean;
         if (pos === 0) high = true;                    // heiban: flat high
         else if (pos === morae) high = i !== 0;        // odaka: first mora low
         else high = i < pos;                           // ataka / nakadaka
-        pts.push([cx, high ? hi : lo]);
+        spans.push({ high, text: cluster });
     });
-    // Non-heiban patterns show the drop past the end of the word too.
-    if (pos === morae) pts.push([w + 6, lo]);
 
-    const ns = "http://www.w3.org/2000/svg";
-    const svg = document.createElementNS(ns, "svg");
-    svg.setAttribute("width", String(w + 9));
-    svg.setAttribute("height", "16");
-    svg.setAttribute("viewBox", `0 0 ${w + 9} 16`);
-    svg.setAttribute("class", "dict-pitch-line");
+    // A drop after the last mora (尾高) shows as a short low tail.
+    if (pos === morae) spans.push({ high: false, text: "" });
+    return spans;
+}
 
-    const line = document.createElementNS(ns, "polyline");
-    line.setAttribute("points", pts.map(([px, py]) => `${px},${py}`).join(" "));
-    line.setAttribute("fill", "none");
-    line.setAttribute("stroke", "currentColor");
-    line.setAttribute("stroke-width", "1.6");
-    svg.appendChild(line);
+function renderPitchReading(entry: DictEntry, pitchPos: number): Element | null {
+    const kana = entry.reading || entry.expression;
+    const spans = pitchSpans(kana, pitchPos);
+    if (!spans) return null;
 
-    for (const [px, py] of pts) {
-        const dot = document.createElementNS(ns, "circle");
-        dot.setAttribute("cx", String(px));
-        dot.setAttribute("cy", String(py));
-        dot.setAttribute("r", "1.8");
-        dot.setAttribute("fill", "currentColor");
-        svg.appendChild(dot);
-    }
-    return svg;
+    const wrap = document.createElement("span");
+    wrap.className = "dict-reading dict-pitch-reading";
+
+    spans.forEach((span, i) => {
+        const el = document.createElement("span");
+        el.className = span.high ? "pitch-high" : "pitch-low";
+        // Connect to the previous mora: the gradient runs from the previous
+        // mora's level to this one's, drawing the step/drop between them.
+        if (i > 0) {
+            const prevHigh = spans[i - 1].high;
+            el.classList.add(prevHigh === span.high ? "link-flat" : "link-drop");
+        }
+        if (span.text === "") el.classList.add("tail");
+        el.textContent = span.text;
+        wrap.appendChild(el);
+    });
+    return wrap;
 }
 
 function showDictPopup(x: number, y: number, entries: DictEntry[]): void {
@@ -710,22 +703,18 @@ function showDictPopup(x: number, y: number, entries: DictEntry[]): void {
         term.textContent = entry.expression;
         head.appendChild(term);
 
-        // The pitch contour sits above the KANA, each point over its mora,
-        // which is what makes the drop position readable at a glance.
-        const kana = entry.reading || entry.expression;
+        // Pitch rides ON the kana themselves (jpdb-style): one line across
+        // the top of high moras, across the bottom of low ones, so the drop
+        // reads against the syllables without making the line taller.
         const pitchPos = entry.pitch && entry.pitch.length > 0 ? entry.pitch[0] : null;
-        const diagram = pitchPos !== null ? pitchDiagram(kana, pitchPos) : null;
+        const pitchReading = pitchPos !== null
+            ? renderPitchReading(entry, pitchPos)
+            : null;
 
-        const reading = document.createElement("span");
-        if (diagram) {
-            const wrap = document.createElement("span");
-            wrap.className = "dict-reading-wrap";
-            wrap.appendChild(diagram);
-            reading.className = "dict-reading";
-            reading.textContent = kana;
-            wrap.appendChild(reading);
-            head.appendChild(wrap);
+        if (pitchReading) {
+            head.appendChild(pitchReading);
         } else if (entry.reading && entry.reading !== entry.expression) {
+            const reading = document.createElement("span");
             reading.className = "dict-reading";
             reading.textContent = entry.reading;
             head.appendChild(reading);
