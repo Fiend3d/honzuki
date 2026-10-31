@@ -620,54 +620,61 @@ function pitchLabel(entry: DictEntry): string {
     return `ピッチ ${entry.pitch.map((p) => (p === 0 ? "0(平板)" : String(p))).join(" · ")}`;
 }
 
-// Count morae in a kana reading: small kana (っャュョぁぃぅぇぉ…) merge into
-// the preceding mora, everything else - including ー and long vowels - is one.
-// Returns -1 when the string is not pure kana (kanji headword with no
-// reading), in which case a diagram cannot be drawn.
-function moraCount(kana: string): number {
-    let n = 0;
+// Split a kana reading into mora clusters: a small kana (ゃゅょッァ…) belongs
+// to the mora before it, so きょ is one cluster of two characters. Returns
+// null when the string is not pure kana (kanji headword with no reading).
+function moraClusters(kana: string): string[] | null {
+    const clusters: string[] = [];
     for (const ch of kana) {
-        if ("ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ".includes(ch)) continue;
-        if (/[\u3041-\u309f\u30a1-\u30ff]/.test(ch)) {
-            n++;
+        if ("ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ".includes(ch)) {
+            if (clusters.length === 0) return null;
+            clusters[clusters.length - 1] += ch;
             continue;
         }
-        return -1;
+        if (!/[\u3041-\u309f\u30a1-\u30ff]/.test(ch)) return null;
+        clusters.push(ch);
     }
-    return n;
+    return clusters.length > 0 ? clusters : null;
 }
 
-// The classic pitch contour: a line over the morae that drops at the accent
-// position. 0 = 平板 (flat, no drop); N = drop after mora N; N = mora count
-// = 尾高 (first mora low, drop after the word).
-function pitchDiagram(entry: DictEntry): Element | null {
-    if (!entry.pitch || entry.pitch.length === 0) return null;
-    const kana = entry.reading || entry.expression;
-    const morae = moraCount(kana);
-    if (morae < 2) return null;
-    const pos = Math.min(entry.pitch[0], morae);
+// The classic pitch contour drawn ABOVE the kana reading: one point per mora,
+// each centered over the characters of that mora, dropping at the accent
+// position. 0 = 平板 (flat, no drop); N = drop after mora N;
+// N = mora count = 尾高 (first mora low, drop after the word).
+function pitchDiagram(reading: string, pitchPos: number): Element | null {
+    const clusters = moraClusters(reading);
+    if (!clusters || clusters.length < 2) return null;
 
-    const w = Math.max(34, morae * 15);
+    const morae = clusters.length;
+    const pos = Math.min(Math.max(pitchPos, 0), morae);
+
+    // Kana are monospaced, so a cluster's width is its character count.
+    // Lay points out over the character budget to keep them aligned.
+    const charW = 15; // matches .dict-reading-wrap .dict-reading font-size
+    const totalChars = clusters.reduce((n, c) => n + c.length, 0);
+    const w = totalChars * charW;
     const hi = 3;
     const lo = 13;
-    const x = (i: number) => ((i - 0.5) * w) / morae;
 
     const pts: [number, number][] = [];
-    for (let i = 1; i <= morae; i++) {
+    let charsBefore = 0;
+    clusters.forEach((cluster, i) => {
+        const cx = (charsBefore + cluster.length / 2) * charW;
+        charsBefore += cluster.length;
         let high: boolean;
         if (pos === 0) high = true;                    // heiban: flat high
-        else if (pos === morae) high = i !== 1;        // odaka: first mora low
-        else high = i <= pos;                          // ataka / nakadaka
-        pts.push([x(i), high ? hi : lo]);
-    }
+        else if (pos === morae) high = i !== 0;        // odaka: first mora low
+        else high = i < pos;                           // ataka / nakadaka
+        pts.push([cx, high ? hi : lo]);
+    });
     // Non-heiban patterns show the drop past the end of the word too.
-    if (pos === morae) pts.push([w + 7, lo]);
+    if (pos === morae) pts.push([w + 6, lo]);
 
     const ns = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(ns, "svg");
-    svg.setAttribute("width", String(w + 10));
+    svg.setAttribute("width", String(w + 9));
     svg.setAttribute("height", "16");
-    svg.setAttribute("viewBox", `0 0 ${w + 10} 16`);
+    svg.setAttribute("viewBox", `0 0 ${w + 9} 16`);
     svg.setAttribute("class", "dict-pitch-line");
 
     const line = document.createElementNS(ns, "polyline");
@@ -701,27 +708,30 @@ function showDictPopup(x: number, y: number, entries: DictEntry[]): void {
         head.className = "dict-head";
         const term = document.createElement("b");
         term.textContent = entry.expression;
+        head.appendChild(term);
 
-        // Pitch contour line floating above the headword, like a dictionary
-        // diagram; the numeric badge stays for the exact position.
-        const termWrap = document.createElement("span");
-        termWrap.className = "dict-term";
-        if (entry.pitch && entry.pitch.length > 0) {
-            const diagram = pitchDiagram(entry);
-            if (diagram) termWrap.appendChild(diagram);
-        }
-        termWrap.appendChild(term);
-        head.appendChild(termWrap);
+        // The pitch contour sits above the KANA, each point over its mora,
+        // which is what makes the drop position readable at a glance.
+        const kana = entry.reading || entry.expression;
+        const pitchPos = entry.pitch && entry.pitch.length > 0 ? entry.pitch[0] : null;
+        const diagram = pitchPos !== null ? pitchDiagram(kana, pitchPos) : null;
 
-        if (entry.reading && entry.reading !== entry.expression) {
-            const read = document.createElement("span");
-            read.className = "dict-reading";
-            read.textContent = entry.reading;
-            head.appendChild(read);
+        const reading = document.createElement("span");
+        if (diagram) {
+            const wrap = document.createElement("span");
+            wrap.className = "dict-reading-wrap";
+            wrap.appendChild(diagram);
+            reading.className = "dict-reading";
+            reading.textContent = kana;
+            wrap.appendChild(reading);
+            head.appendChild(wrap);
+        } else if (entry.reading && entry.reading !== entry.expression) {
+            reading.className = "dict-reading";
+            reading.textContent = entry.reading;
+            head.appendChild(reading);
         }
-        // Pitch rides along as a small badge on the headword line rather
-        // than as its own entry.
-        if (entry.kind !== "pitch" && entry.pitch && entry.pitch.length > 0) {
+
+        if (pitchPos !== null) {
             const badge = document.createElement("span");
             badge.className = "dict-pitch";
             badge.textContent = pitchLabel(entry);

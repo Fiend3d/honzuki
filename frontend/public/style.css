@@ -500,12 +500,19 @@ kbd {
     white-space: nowrap;
 }
 
-/* Headword with its pitch contour line above it. */
-.dict-term {
+/* Kana reading with its pitch contour line above it. The reading uses a
+   fixed size so the diagram's per-mora x positions line up with the glyphs
+   (full-width kana are exactly 1em wide). */
+.dict-reading-wrap {
     display: inline-flex;
     flex-direction: column;
     align-items: flex-start;
     gap: 1px;
+}
+
+.dict-reading-wrap .dict-reading {
+    font-size: 15px;
+    color: var(--ink);
 }
 
 .dict-pitch-line {
