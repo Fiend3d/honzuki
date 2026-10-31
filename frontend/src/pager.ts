@@ -55,6 +55,17 @@ function runeLen(s: string): number {
     return Array.from(s).length;
 }
 
+/** Rune offsets of every U+2028 (intra-paragraph line break) in the text. */
+function breakOffsets(s: string): number[] {
+    const offsets: number[] = [];
+    let i = 0;
+    for (const ch of s) {
+        if (ch === "\u2028") offsets.push(i);
+        i += 1;
+    }
+    return offsets;
+}
+
 // --------------------------------------------------------------------------
 // Measurement
 // --------------------------------------------------------------------------
@@ -109,6 +120,16 @@ function measureOverflow(el: HTMLElement, host: MeasureHost): number {
 // Layout
 // --------------------------------------------------------------------------
 
+/** Page capacity derived from live CSS, in the three units the pager thinks in. */
+interface Capacity {
+    /** Upper bound on characters per page. */
+    chars: number;
+    /** Upper bound on characters in one column. */
+    perColumn: number;
+    /** Columns that fit across the page box. */
+    columns: number;
+}
+
 /**
  * Upper bound on how many characters can fit on one page, derived from the
  * live CSS (font size, letter spacing, line height, page box). Real text
@@ -116,7 +137,7 @@ function measureOverflow(el: HTMLElement, host: MeasureHost): number {
  * so it is safe as a search bound: it prevents the pager from measuring
  * whole multi-page paragraphs one character-starved slice at a time.
  */
-function estimateCapacity(host: MeasureHost): number {
+function estimateCapacity(host: MeasureHost): Capacity {
     const cs = window.getComputedStyle(host.container);
     const fontSize = parseFloat(cs.fontSize) || 16;
     const letterSpacing = parseFloat(cs.letterSpacing) || 0;
@@ -125,9 +146,46 @@ function estimateCapacity(host: MeasureHost): number {
     const vertical = document.body.dataset.orientation === "vertical";
     const columnLength = vertical ? rect.height : rect.width;
     const pageBreadth = vertical ? rect.width : rect.height;
-    const charsPerColumn = Math.floor(columnLength / (fontSize + letterSpacing));
-    const columnsPerPage = Math.floor(pageBreadth / lineHeight);
-    return Math.max(200, charsPerColumn * columnsPerPage);
+    const perColumn = Math.max(1, Math.floor(columnLength / (fontSize + letterSpacing)));
+    const columns = Math.max(1, Math.floor(pageBreadth / lineHeight));
+    return { chars: Math.max(200, perColumn * columns), perColumn, columns };
+}
+
+/**
+ * Analytic guess at how many characters of a paragraph fit in `columns`
+ * columns, accounting for U+2028 breaks: each break starts a new column and
+ * wastes the tail of the old one. Kinsoku rules shift characters by one or
+ * two columns, so the guess is verified (and corrected) by measurement -
+ * but it is close enough to turn an 11-probe binary search into 2-4 probes.
+ */
+function estimateFit(
+    from: number,
+    limit: number,
+    perColumn: number,
+    columns: number,
+    breaks: number[],
+): number {
+    const end = from + limit;
+    let usedColumns = 0;
+    let taken = 0;
+    let segStart = from;
+    for (const b of breaks) {
+        if (b <= segStart) continue;
+        if (b >= end) break;
+        const segLen = b - segStart;
+        const cols = Math.ceil(segLen / perColumn);
+        if (usedColumns + cols > columns) {
+            return taken + Math.max(0, (columns - usedColumns) * perColumn);
+        }
+        usedColumns += cols;
+        taken += segLen;
+        segStart = b + 1;
+    }
+    const segLen = end - segStart;
+    if (usedColumns + Math.ceil(segLen / perColumn) > columns) {
+        return taken + Math.max(0, (columns - usedColumns) * perColumn);
+    }
+    return limit;
 }
 
 /**
@@ -146,22 +204,25 @@ export function layoutBook(
     const paragraphs = book.paragraphs ?? [];
     const headingByPara = headingMap(book);
 
-    // Rune lengths are computed once per paragraph. The fill loop asks for
-    // the same paragraph's length on every trial; re-counting a 1600-character
-    // paragraph per trial dominated the layout time before.
+    // Rune lengths and U+2028 break positions are computed once per
+    // paragraph. The fill loop asks for the same paragraph's data on every
+    // trial; re-deriving it per trial dominated the layout time before.
     const lengths = paragraphs.map((p) => runeLen(p.text));
+    const breaks = paragraphs.map((p) => breakOffsets(p.text));
     const totalChars = lengths.reduce((sum, n) => sum + n, 0);
 
     const pages: Page[] = [];
-    const capacity = estimateCapacity(host);
+    const cap = estimateCapacity(host);
 
     let paraIdx = 0;
     let paraOffset = 0;
     let globalOffset = 0;
+    let acceptedChars = 0;
 
     while (paraIdx < paragraphs.length) {
         const startOffset = globalOffset;
         const slices: ParagraphSlice[] = [];
+        acceptedChars = 0;
         const column = document.createElement("div");
         column.className = "column";
         host.container.replaceChildren(column);
@@ -173,7 +234,7 @@ export function layoutBook(
             // A paragraph longer than a full page can never fit whole;
             // measuring it would grow a multi-page DOM for nothing. Skip
             // straight to the character fit below.
-            if (remaining > capacity) break;
+            if (remaining > cap.chars) break;
 
             const slice: ParagraphSlice = {
                 paragraph: paragraphs[paraIdx],
@@ -190,6 +251,7 @@ export function layoutBook(
                 break;
             }
             slices.push(slice);
+            acceptedChars += remaining;
             globalOffset += remaining;
             paraIdx += 1;
             paraOffset = 0;
@@ -203,7 +265,8 @@ export function layoutBook(
         if (paraIdx < paragraphs.length) {
             const remaining = lengths[paraIdx] - paraOffset;
             const taken = fitParagraphByCharacter(
-                paragraphs[paraIdx], paraOffset, host, column, capacity, headingByPara,
+                paragraphs[paraIdx], paraOffset, host, column, cap, headingByPara,
+                breaks[paraIdx], acceptedChars,
             );
             if (taken > 0) {
                 const slice: ParagraphSlice = {
@@ -266,40 +329,94 @@ export function layoutBook(
  * The trial node is appended to the live column and removed again, so each
  * step measures once without rebuilding what is already accepted.
  */
+/**
+ * Find the largest prefix of a paragraph that fits the space left in
+ * `column` (which already holds the page's accepted slices).
+ *
+ * The search is seeded by an analytic estimate (columns minus U+2028 waste)
+ * and verified by measurement; the estimate is usually within a character or
+ * two, so a page that used to cost ~11 forced layouts costs 2-4.
+ */
 function fitParagraphByCharacter(
     para: Paragraph,
     from: number,
     host: MeasureHost,
     column: HTMLElement,
-    capacity: number,
+    cap: Capacity,
     headingByPara: Map<number, string>,
+    breaks: number[],
+    acceptedChars: number,
 ): number {
     const chars = runeLen(para.text);
     let lo = 1;
-    // The page cannot hold more than the capacity estimate (with a 2x
-    // allowance in case the estimate undercounts); searching further would
-    // measure multi-page DOMs that are certain to overflow.
-    let hi = Math.min(chars - from, capacity * 2);
+    // The page cannot hold more than the capacity estimate minus what the
+    // accepted slices already consumed; searching beyond it would measure
+    // multi-page DOMs that are certain to overflow.
+    let hi = Math.min(chars - from, Math.max(1, cap.chars + cap.perColumn - acceptedChars));
     let best = 0;
 
-    while (lo <= hi) {
-        const mid = (lo + hi) >> 1;
+    const fits = (n: number): boolean => {
         const node = buildParaNode({
             paragraph: para,
             from,
-            length: mid,
+            length: n,
             continued: from > 0,
             continues: false,
         }, headingByPara);
         column.appendChild(node);
+        const ok = measureOverflow(column, host) <= 0;
+        column.removeChild(node);
+        return ok;
+    };
 
-        if (measureOverflow(column, host) <= 0) {
+    // Seed: analytic estimate on an empty page; the previous fit is a decent
+    // fallback otherwise (same geometry, same paragraph).
+    const seed = acceptedChars === 0
+        ? estimateFit(from, hi, cap.perColumn, cap.columns, breaks)
+        : Math.min(hi, Math.max(1, cap.chars - acceptedChars));
+
+    if (seed >= 1 && seed <= hi && fits(seed)) {
+        best = seed;
+        if (seed + 1 > hi || !fits(seed + 1)) return best;
+        // More fits than estimated (kinsoku pulled text up): expand.
+        let n = seed + 1;
+        best = n;
+        let step = Math.max(8, seed >> 4);
+        while (n + step <= hi && fits(n + step)) {
+            n += step;
+            best = n;
+        }
+        lo = n + 1;
+        hi = Math.min(hi, n + step - 1);
+    } else {
+        // The seed overflowed (usually kinsoku pushing text a column or two
+        // early). Descend by whole columns until something fits, then
+        // binary-search the bracket around it.
+        let n = seed - cap.perColumn;
+        let found = false;
+        while (n >= lo) {
+            if (fits(n)) {
+                found = true;
+                break;
+            }
+            n -= cap.perColumn;
+        }
+        if (found) {
+            best = n;
+            lo = n + 1;
+            hi = Math.min(hi, n + cap.perColumn - 1);
+        }
+        // If nothing fit, the plain binary search below covers [lo, hi].
+    }
+
+    while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (fits(mid)) {
             best = mid;
             lo = mid + 1;
         } else {
             hi = mid - 1;
         }
-        column.removeChild(node);
     }
     return best;
 }

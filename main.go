@@ -112,16 +112,9 @@ func main() {
 		openFileAndNotify(app, books)
 	})
 
-	// Double-clicking a .txt in Explorer launches us with the path as argv.
-	// The frontend restores the saved position, then reports the book back.
-	app.Event.OnApplicationEvent(events.Common.ApplicationOpenedWithFile,
-		func(event *application.ApplicationEvent) {
-			// Wails recognised the file association. The frontend picks the
-			// path up itself via BookService.PendingFile; emitting an event
-			// here would race listeners that do not exist yet (and double-open
-			// alongside PendingFile).
-			_ = event.Context().Filename()
-		})
+	// Double-clicking a .txt in Explorer launches us with the path as argv;
+	// the frontend picks it up via BookService.PendingFile (see above), so
+	// there is nothing to do for ApplicationOpenedWithFile here.
 
 	err := app.Run()
 	if err != nil {
