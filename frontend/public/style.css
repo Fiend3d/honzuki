@@ -499,3 +499,16 @@ kbd {
     color: var(--ink-soft);
     white-space: nowrap;
 }
+
+/* Headword with its pitch contour line above it. */
+.dict-term {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+}
+
+.dict-pitch-line {
+    color: #b0652f;
+    line-height: 1;
+}

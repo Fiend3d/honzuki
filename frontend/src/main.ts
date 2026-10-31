@@ -620,6 +620,74 @@ function pitchLabel(entry: DictEntry): string {
     return `ピッチ ${entry.pitch.map((p) => (p === 0 ? "0(平板)" : String(p))).join(" · ")}`;
 }
 
+// Count morae in a kana reading: small kana (っャュョぁぃぅぇぉ…) merge into
+// the preceding mora, everything else - including ー and long vowels - is one.
+// Returns -1 when the string is not pure kana (kanji headword with no
+// reading), in which case a diagram cannot be drawn.
+function moraCount(kana: string): number {
+    let n = 0;
+    for (const ch of kana) {
+        if ("ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ".includes(ch)) continue;
+        if (/[\u3041-\u309f\u30a1-\u30ff]/.test(ch)) {
+            n++;
+            continue;
+        }
+        return -1;
+    }
+    return n;
+}
+
+// The classic pitch contour: a line over the morae that drops at the accent
+// position. 0 = 平板 (flat, no drop); N = drop after mora N; N = mora count
+// = 尾高 (first mora low, drop after the word).
+function pitchDiagram(entry: DictEntry): Element | null {
+    if (!entry.pitch || entry.pitch.length === 0) return null;
+    const kana = entry.reading || entry.expression;
+    const morae = moraCount(kana);
+    if (morae < 2) return null;
+    const pos = Math.min(entry.pitch[0], morae);
+
+    const w = Math.max(34, morae * 15);
+    const hi = 3;
+    const lo = 13;
+    const x = (i: number) => ((i - 0.5) * w) / morae;
+
+    const pts: [number, number][] = [];
+    for (let i = 1; i <= morae; i++) {
+        let high: boolean;
+        if (pos === 0) high = true;                    // heiban: flat high
+        else if (pos === morae) high = i !== 1;        // odaka: first mora low
+        else high = i <= pos;                          // ataka / nakadaka
+        pts.push([x(i), high ? hi : lo]);
+    }
+    // Non-heiban patterns show the drop past the end of the word too.
+    if (pos === morae) pts.push([w + 7, lo]);
+
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("width", String(w + 10));
+    svg.setAttribute("height", "16");
+    svg.setAttribute("viewBox", `0 0 ${w + 10} 16`);
+    svg.setAttribute("class", "dict-pitch-line");
+
+    const line = document.createElementNS(ns, "polyline");
+    line.setAttribute("points", pts.map(([px, py]) => `${px},${py}`).join(" "));
+    line.setAttribute("fill", "none");
+    line.setAttribute("stroke", "currentColor");
+    line.setAttribute("stroke-width", "1.6");
+    svg.appendChild(line);
+
+    for (const [px, py] of pts) {
+        const dot = document.createElementNS(ns, "circle");
+        dot.setAttribute("cx", String(px));
+        dot.setAttribute("cy", String(py));
+        dot.setAttribute("r", "1.8");
+        dot.setAttribute("fill", "currentColor");
+        svg.appendChild(dot);
+    }
+    return svg;
+}
+
 function showDictPopup(x: number, y: number, entries: DictEntry[]): void {
     closeDictPopup();
     const box = document.createElement("div");
@@ -633,7 +701,18 @@ function showDictPopup(x: number, y: number, entries: DictEntry[]): void {
         head.className = "dict-head";
         const term = document.createElement("b");
         term.textContent = entry.expression;
-        head.appendChild(term);
+
+        // Pitch contour line floating above the headword, like a dictionary
+        // diagram; the numeric badge stays for the exact position.
+        const termWrap = document.createElement("span");
+        termWrap.className = "dict-term";
+        if (entry.pitch && entry.pitch.length > 0) {
+            const diagram = pitchDiagram(entry);
+            if (diagram) termWrap.appendChild(diagram);
+        }
+        termWrap.appendChild(term);
+        head.appendChild(termWrap);
+
         if (entry.reading && entry.reading !== entry.expression) {
             const read = document.createElement("span");
             read.className = "dict-reading";
