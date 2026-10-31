@@ -338,7 +338,16 @@ func addEntry(entries map[string][]DictEntry, raw any, title string, meta bool) 
 }
 
 func addDictEntry(entries map[string][]DictEntry, e DictEntry) {
-	entries[e.Expression] = append(entries[e.Expression], e)
+	// Yomichan packs join variant spellings into one head expression,
+	// e.g. "さようなら, さよなら". Index every variant so selecting either
+	// one finds the entry.
+	for _, variant := range strings.Split(e.Expression, ", ") {
+		variant = strings.TrimSpace(variant)
+		if variant == "" {
+			continue
+		}
+		entries[variant] = append(entries[variant], e)
+	}
 	if e.Reading != "" && e.Reading != e.Expression {
 		entries[e.Reading] = append(entries[e.Reading], e)
 	}
