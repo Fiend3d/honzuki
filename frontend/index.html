@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+    <link rel="stylesheet" href="/style.css"/>
+    <title>honzuki</title>
+</head>
+<body data-orientation="vertical">
+
+<!-- The page. Columns flow right-to-left inside it, and the page itself is the
+     unit the pager moves through. -->
+<main class="page" id="page" data-file-drop-target>
+    <div id="columns" class="columns"></div>
+</main>
+
+<!-- Empty state, shown until a book is opened. -->
+<section class="welcome" id="welcome">
+    <h1 class="welcome-title">honzuki</h1>
+    <p class="welcome-body">
+        テキストファイルを、本と同じ縦書きで読みます。<br/>
+        文字は上から下へ、行は右から左へ進みます。
+    </p>
+    <button class="btn" id="welcome-open">本を開く</button>
+    <p class="welcome-keys">
+        <kbd>Ctrl</kbd> + <kbd>O</kbd> 開く　·
+        <kbd>←</kbd> 次　<kbd>→</kbd> 前　·
+        <kbd>Ctrl</kbd> + <kbd>M</kbd> 縦横　·
+        <kbd>Esc</kbd> 閉じる
+    </p>
+    <p class="welcome-drop">ファイルをこの窓にドラッグしても開けます。</p>
+    <ul class="recent" id="recent"></ul>
+</section>
+
+<!-- Status line: title, position, encoding. -->
+<footer class="status" id="status" hidden>
+    <span class="status-title" id="status-title"></span>
+    <span class="status-pos" id="status-pos"></span>
+    <span class="status-enc">
+        <label for="encoding">文字コード</label>
+        <select id="encoding"></select>
+    </span>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

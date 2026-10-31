@@ -1,0 +1,258 @@
+/* honzuki — vertical Japanese reader
+   ------------------------------------------------------------------
+   The reading model: a page is a fixed box. Inside it, CSS lays text out in
+   vertical columns that fill top-to-bottom and advance right-to-left, exactly
+   like a Japanese book. Pagination measures that box and cuts the text to fit.
+*/
+
+:root {
+    /* Page colours: washi paper and ink, not pure white and black. */
+    --paper: #faf7f0;
+    --paper-edge: #efe9dd;
+    --ink: #2b2622;
+    --ink-soft: #6b6257;
+    --rule: #d9d1c4;
+
+    /* Reading metrics, driven by settings.ts. */
+    --font-size: 20px;
+    --line-height: 1.9;
+    --letter-spacing: 0.03em;
+    --margin: 40px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+}
+
+body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Noto Serif JP", "YuMincho", "Yu Mincho", "MS Mincho",
+                 "Hiragino Mincho ProN", "Songti SC", serif;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ---------------------------------------------------------------- page --- */
+
+.page {
+    position: absolute;
+    inset: 0;
+    padding: var(--margin);
+    /* A faint inner edge, so the page reads as a sheet rather than a window. */
+    box-shadow: inset 0 0 0 1px var(--paper-edge);
+}
+
+/* The column container. This is where vertical typesetting happens. */
+.columns {
+    /* vertical-rl: text runs top-to-bottom, columns advance right-to-left. */
+    writing-mode: vertical-rl;
+    /* Latin digits and punctuation rotate 90°; Japanese glyphs stay upright. */
+    text-orientation: mixed;
+
+    height: 100%;
+    width: 100%;
+
+    font-size: var(--font-size);
+    line-height: var(--line-height);
+    letter-spacing: var(--letter-spacing);
+
+    /* Text must not hang over the page edge. */
+    overflow: hidden;
+
+    /* Keep kana and punctuation off the last line of a column. */
+    line-break: strict;
+    hyphens: none;
+}
+
+/* One column per page. The pager sizes it to the measured page box. */
+.column { margin: 0; }
+
+.para { margin: 0; }
+
+.para + .para { margin-block-start: 0.6em; }
+
+.chapter-heading {
+    font-weight: 700;
+    font-size: 1.15em;
+    letter-spacing: 0.08em;
+    margin-block-end: 0.8em;
+    color: var(--ink);
+}
+
+/* A paragraph split across pages: the continuation has no leading indent. */
+.para.continuation { text-indent: 0; }
+
+/* Horizontal mode: the same markup, normal Western flow. */
+body[data-orientation="horizontal"] .columns {
+    writing-mode: horizontal-tb;
+    text-orientation: initial;
+    line-break: normal;
+}
+
+/* ------------------------------------------------------------- welcome --- */
+
+.welcome {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1.1em;
+    padding: 2rem;
+    text-align: center;
+    color: var(--ink-soft);
+}
+
+.welcome[hidden] { display: none; }
+
+.welcome-title {
+    margin: 0;
+    font-size: 2.2em;
+    font-weight: 400;
+    letter-spacing: 0.18em;
+    color: var(--ink);
+}
+
+.welcome-body {
+    margin: 0;
+    font-size: 0.95em;
+    line-height: 2;
+}
+
+.welcome-keys {
+    margin: 0;
+    font-size: 0.8em;
+    color: var(--ink-soft);
+}
+
+.welcome-drop {
+    margin: 0;
+    font-size: 0.8em;
+    color: var(--ink-soft);
+}
+
+/* --------------------------------------------------------------- drop ---- */
+
+/* The runtime adds .file-drop-target-active to the element marked
+   data-file-drop-target while a file is dragged over the window. */
+.page.file-drop-target-active {
+    box-shadow: inset 0 0 0 2px var(--rule);
+    background: #f3eee4;
+}
+
+kbd {
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    font-size: 0.9em;
+    padding: 0.15em 0.45em;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    background: #fff;
+    color: var(--ink);
+}
+
+.btn {
+    font: inherit;
+    font-size: 0.95em;
+    padding: 0.5em 1.6em;
+    border: 1px solid var(--ink-soft);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ink);
+    cursor: pointer;
+}
+
+.btn:hover { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+.recent {
+    list-style: none;
+    margin: 0.6em 0 0;
+    padding: 0;
+    max-width: 34em;
+    width: 100%;
+}
+
+.recent:empty { display: none; }
+
+.recent li {
+    display: flex;
+    justify-content: space-between;
+    gap: 1em;
+    padding: 0.35em 0.6em;
+    font-size: 0.85em;
+    border-bottom: 1px solid var(--rule);
+    cursor: pointer;
+}
+
+.recent li:hover { background: var(--paper-edge); }
+
+.recent .recent-title { color: var(--ink); }
+.recent .recent-where { color: var(--ink-soft); white-space: nowrap; }
+
+/* -------------------------------------------------------------- status --- */
+
+.status {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    gap: 1.2em;
+    padding: 0.35em var(--margin);
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    font-size: 12px;
+    color: var(--ink-soft);
+    background: var(--paper-edge);
+    border-top: 1px solid var(--rule);
+}
+
+.status[hidden] { display: none; }
+
+.status-title {
+    font-family: "Noto Serif JP", serif;
+    font-size: 13px;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 40%;
+}
+
+.status-pos { margin-right: auto; }
+
+.status-enc { display: flex; align-items: center; gap: 0.5em; }
+
+.status-enc select {
+    font: inherit;
+    padding: 0.15em 0.3em;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    background: #fff;
+    color: var(--ink);
+}
+
+/* --------------------------------------------------------------- toast --- */
+
+.toast {
+    position: absolute;
+    left: 50%;
+    bottom: 3.2em;
+    transform: translateX(-50%);
+    max-width: 80%;
+    padding: 0.6em 1.2em;
+    font-size: 0.85em;
+    background: var(--ink);
+    color: var(--paper);
+    border-radius: 6px;
+    opacity: 0;
+    transition: opacity 180ms ease;
+    pointer-events: none;
+}
+
+.toast[hidden] { display: none; }
+.toast.visible { opacity: 1; }

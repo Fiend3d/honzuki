@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=honzuki
+Comment=Japanese vertical-text book reader
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/honzuki.exe %u
+Terminal=false
+Type=Application
+Icon=honzuki.exe
+Categories=Utility;
+StartupWMClass=honzuki.exe
+
+ 

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<MsixPackagingToolTemplate
+    xmlns="http://schemas.microsoft.com/msix/packaging/msixpackagingtool/template/2022">
+    <Settings
+        AllowTelemetry="false"
+        ApplyACLsToPackageFiles="true"
+        GenerateCommandLineFile="true"
+        AllowPromptForPassword="false">
+    </Settings>
+    <Installer
+        Path="honzuki.exe"
+        Arguments=""
+        InstallLocation="C:\Program Files\vlad\honzuki">
+    </Installer>
+    <PackageInformation
+        PackageName="honzuki"
+        PackageDisplayName="honzuki"
+        PublisherName="CN=vlad"
+        PublisherDisplayName="vlad"
+        Version="0.1.0.0"
+        PackageDescription="Japanese vertical-text book reader">
+        <Capabilities>
+            <Capability Name="runFullTrust" />
+            
+        </Capabilities>
+        <Applications>
+            <Application
+                Id="com.example.honzuki"
+                Description="Japanese vertical-text book reader"
+                DisplayName="honzuki"
+                ExecutableName="honzuki.exe"
+                EntryPoint="Windows.FullTrustApplication">
+                
+            </Application>
+        </Applications>
+        <Resources>
+            <Resource Language="en-us" />
+        </Resources>
+        <Dependencies>
+            <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.19041.0" />
+        </Dependencies>
+        <Properties>
+            <Framework>false</Framework>
+            <DisplayName>honzuki</DisplayName>
+            <PublisherDisplayName>vlad</PublisherDisplayName>
+            <Description>Japanese vertical-text book reader</Description>
+            <Logo>Assets\AppIcon.png</Logo>
+        </Properties>
+    </PackageInformation>
+    <SaveLocation PackagePath="honzuki.msix" />
+    <PackageIntegrity>
+        <CertificatePath></CertificatePath>
+    </PackageIntegrity>
+</MsixPackagingToolTemplate>
