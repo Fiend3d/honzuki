@@ -18,7 +18,7 @@ dictionaries, pitch accent included.
   presets, or custom size, margin, and font size in `Ctrl+,`), not
   window-sized. Resizing the window never re-paginates — it only shows one
   sheet or a two-page spread, scaled to fit
-- **Dictionary lookup**: click a word to get headword, reading, definitions,
+- **Dictionary lookup**: select a word to get its headword, reading, definitions,
   and pitch accent from [Yomichan dictionaries](https://github.com/SakiDailene/yomichan-dictionaries)
 - **Encoding handling**: automatic detection with a manual override for
   Shift_JIS, EUC-JP, Windows-31J, UTF-8, and friends (Aozora Bunko files
@@ -47,9 +47,9 @@ Good starting packs from the repo above:
 - **大辞泉** (`[Pitch]`) — pitch accent data (shows as `ピッチ …` in the popup)
 
 Restart honzuki after adding dictionaries. The status bar shows `辞書 N` when
-N packs are loaded. Then **click a word** in the text: a card appears with
-the longest matching headword, its reading, definitions, and pitch. Click
-elsewhere or press `Esc` to dismiss it.
+N packs are loaded. Then **select a word** in the text: a card appears with
+the meaning of exactly what you selected (the lookup never reaches past the
+selection). Clear the selection or press `Esc` to dismiss it.
 
 honzuki accepts both JSONL and whole-array term banks, and keeps entries from
 partially corrupt zips rather than skipping them.
@@ -65,7 +65,7 @@ partially corrupt zips rather than skipping them.
 | `Ctrl+,` | page settings (size presets, margin, font) |
 | `Ctrl+M` | toggle 縦書き / 横書き |
 | `Ctrl+O` | open file |
-| `Esc` | close popup → close book |
+| `Esc` | close dictionary popup → close book |
 | `Ctrl+Q` | quit |
 
 ## Building

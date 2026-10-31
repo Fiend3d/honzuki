@@ -243,6 +243,7 @@ function showBook(): void {
 function closeBook(): void {
     if (!book) return;
     closeDictPopup();
+    clearSelection();
     const path = book.path;
     const pos = currentPosition();
     BookService.SavePosition(path, pos).catch((err) => {
@@ -315,6 +316,7 @@ async function openBook(next: Book, resumeAt?: number): Promise<void> {
 async function relayout(restore: boolean, resumeAt?: number, force = false): Promise<void> {
     if (!book) return;
     closeDictPopup();
+    clearSelection();
 
     const key = currentLayoutKey();
     if (!force && laidOut && key === layoutKey) {
@@ -379,6 +381,7 @@ function errorMessage(err: unknown): string {
 function goTo(index: number): void {
     if (!laidOut) return;
     closeDictPopup();
+    clearSelection();
     const clamped = Math.max(0, Math.min(laidOut.pages.length - 1, index));
     if (clamped === current) return;
     current = clamped;
@@ -561,6 +564,7 @@ window.addEventListener("keydown", (ev: KeyboardEvent) => {
             ev.preventDefault();
             if (dictPopup) {
                 closeDictPopup();
+                clearSelection();
                 break;
             }
             closeBook();
@@ -589,34 +593,26 @@ window.addEventListener("resize", () => {
 // ------------------------------------------------------------------ start ---
 
 // ---------------------------------------------------------------------------
-// Dictionary lookup. Click a word: the characters from the clicked glyph
-// onward are sent to Go, which returns the longest headword it knows.
+// Dictionary lookup. Selection-driven: select text and the popup appears
+// with the meaning of exactly what was selected - the lookup never reaches
+// past the selection. Selecting nothing shows nothing.
 // ---------------------------------------------------------------------------
 
 let dictPopup: HTMLElement | null = null;
 let dictNames: string[] = [];
+let selectionTimer: number | null = null;
 
-const DICT_SCAN_LEN = 14; // characters handed to the prefix matcher
-
-function caretTextAt(x: number, y: number): { text: string; data: string; offset: number } | null {
-    // caretRangeFromPoint is Chromium-only but this app is WebView2/WebKit.
-    const range = (document as Document & {
-        caretRangeFromPoint?: (x: number, y: number) => Range | null;
-    }).caretRangeFromPoint?.(x, y);
-    if (!range) return null;
-    const node = range.startContainer;
-    if (node.nodeType !== Node.TEXT_NODE || !node.textContent) return null;
-    const data = node.textContent;
-    const offset = range.startOffset;
-    if (offset >= data.length) return null;
-    return { text: data.slice(offset, offset + DICT_SCAN_LEN), data, offset };
-}
+const DICT_MAX_SELECT = 16; // matches the Go-side prefix bound
 
 function closeDictPopup(): void {
     if (dictPopup) {
         dictPopup.remove();
         dictPopup = null;
     }
+}
+
+function clearSelection(): void {
+    document.getSelection()?.removeAllRanges();
 }
 
 function pitchLabel(entry: DictEntry): string {
@@ -679,37 +675,42 @@ function showDictPopup(x: number, y: number, entries: DictEntry[]): void {
     box.style.top = `${py}px`;
 }
 
-async function lookupAtPoint(x: number, y: number): Promise<void> {
+async function lookupSelection(): Promise<void> {
     if (dictNames.length === 0) return;
-    const caret = caretTextAt(x, y);
-    if (!caret) return;
+    const sel = document.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+        closeDictPopup();
+        return;
+    }
+    // Japanese has no word boundaries; whitespace from line breaks is noise.
+    const text = sel.toString().replace(/\s+/g, "").slice(0, DICT_MAX_SELECT);
+    if (text.length === 0) {
+        closeDictPopup();
+        return;
+    }
     try {
-        // The caret can land before or after the clicked glyph; try both.
-        let hits = await DictionaryService.LookupPrefix(caret.text);
-        // The caret can land after the clicked glyph; retry one character back.
-        if ((!hits || hits.length === 0) && caret.offset > 0) {
-            const back = caret.data.slice(caret.offset - 1, caret.offset - 1 + DICT_SCAN_LEN);
-            hits = await DictionaryService.LookupPrefix(back);
-        }
+        // LookupPrefix tries the whole selection first, then shorter prefixes
+        // of it - never anything beyond the selection.
+        const hits = await DictionaryService.LookupPrefix(text);
         if (hits && hits.length > 0) {
-            showDictPopup(x, y, hits);
+            const rect = sel.getRangeAt(0).getBoundingClientRect();
+            showDictPopup(rect.right, rect.bottom, hits);
+        } else {
+            closeDictPopup();
         }
     } catch {
         // Lookup failures stay silent; the reader must keep working.
     }
 }
 
-els.page.addEventListener("click", (ev) => {
-    const target = ev.target as HTMLElement;
-    if (!target.closest(".para")) return;
-    void lookupAtPoint(ev.clientX, ev.clientY);
-});
-
-document.addEventListener("click", (ev) => {
-    if (!dictPopup) return;
-    if ((ev.target as HTMLElement).closest(".dict-popup")) return;
-    if ((ev.target as HTMLElement).closest(".para")) return; // re-lookup handled above
-    closeDictPopup();
+document.addEventListener("selectionchange", () => {
+    // Debounce: dragging a selection fires this per glyph; one lookup once
+    // the selection settles is enough.
+    if (selectionTimer !== null) window.clearTimeout(selectionTimer);
+    selectionTimer = window.setTimeout(() => {
+        selectionTimer = null;
+        void lookupSelection();
+    }, 150);
 });
 
 Events.On("honzuki:dictready", (ev: { data?: unknown }) => {

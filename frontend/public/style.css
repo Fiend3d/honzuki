@@ -483,3 +483,9 @@ kbd {
     margin-top: 0.25em;
     white-space: pre-wrap;
 }
+
+/* Selected text (the dictionary trigger) reads as a highlighter mark. */
+::selection {
+    background: #f3d9a4;
+    color: inherit;
+}
