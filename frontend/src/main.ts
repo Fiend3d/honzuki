@@ -1,7 +1,8 @@
 // The reading view: owns the current book, its pages, and the current page.
 //
-// Navigation is inverted on purpose. In vertical-rl the next page appears to the
-// LEFT, so ArrowLeft/PageDown/Space advance and ArrowRight/PageUp go back.
+// Navigation follows the book's flow. Vertical-rl runs right-to-left, so
+// ArrowLeft advances there; horizontal-tb runs left-to-right, so ArrowRight
+// advances. PageDown/Space always advance, PageUp always goes back.
 //
 // Pages are fixed-size sheets (settings), not window-sized. The window shows
 // one sheet, or two side by side when it is wide enough - then a page turn
@@ -189,6 +190,14 @@ function renderSpread(): void {
         columns.className = "columns";
         columns.appendChild(buildPageElement(p, headings));
         sheet.appendChild(columns);
+
+        // Printed page number, like a real book: bottom center, in the
+        // sheet's bottom margin band.
+        const num = document.createElement("div");
+        num.className = "page-number";
+        num.textContent = String(p.number);
+        sheet.appendChild(num);
+
         return sheet;
     });
     const row = document.createElement("div");
@@ -513,15 +522,24 @@ window.addEventListener("keydown", (ev: KeyboardEvent) => {
     if (tag === "INPUT" || tag === "SELECT") return;
 
     switch (ev.key) {
-        // Next page: left, down-arrow direction, or space.
+        // Direction follows the book: vertical flow runs right-to-left, so
+        // left advances; horizontal flow runs left-to-right, so right does.
         case "ArrowLeft":
+            ev.preventDefault();
+            if (settings.orientation === "vertical") nextPage();
+            else prevPage();
+            break;
+        case "ArrowRight":
+            ev.preventDefault();
+            if (settings.orientation === "vertical") prevPage();
+            else nextPage();
+            break;
+        // These always advance/go back, whichever way the book runs.
         case "PageDown":
         case " ":
             ev.preventDefault();
             nextPage();
             break;
-        // Previous page: right.
-        case "ArrowRight":
         case "PageUp":
             ev.preventDefault();
             prevPage();
