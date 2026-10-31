@@ -768,6 +768,10 @@ async function lookupSelection(): Promise<void> {
         closeDictPopup();
         return;
     }
+    // Selecting text INSIDE the popup is fine - keep it open and readable.
+    const node = sel.anchorNode;
+    if (dictPopup && node && dictPopup.contains(node)) return;
+
     // Japanese has no word boundaries; whitespace from line breaks is noise.
     const text = sel.toString().replace(/\s+/g, "").slice(0, DICT_MAX_SELECT);
     if (text.length === 0) {

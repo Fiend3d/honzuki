@@ -436,6 +436,7 @@ kbd {
 /* Click a word: a small paper card appears with headword, reading, source,
    definitions, and pitch accent when a pitch dictionary is loaded. */
 .dict-popup {
+    user-select: text;
     position: fixed;
     z-index: 30;
     max-width: 380px;
@@ -513,10 +514,8 @@ kbd {
 
 .dict-pitch-reading > span {
     display: inline-block;
-    background-repeat: no-repeat;
+    background-repeat: no-repeat, no-repeat;
     padding: 2px 1px;
-    margin: 0 -1px;
-    background-color: var(--paper);
 }
 
 /* High mora: rule across the top. */
@@ -533,15 +532,24 @@ kbd {
     background-size: 100% 2px;
 }
 
-/* Step between a high and a low mora (or back): a diagonal-ish drop band. */
-.dict-pitch-reading .link-drop {
-    background-image: linear-gradient(to bottom, var(--pitch-line) 0%, var(--pitch-line) 100%);
-    background-position: center;
-    background-size: 2px 100%;
-    background-position: left center;
+/* Mora that starts a step: a vertical connector on its left edge joining
+   the previous mora's level to this one's - IN ADDITION to its own rule,
+   never instead of it. */
+.dict-pitch-reading .pitch-high.link-drop {
+    background-image:
+        linear-gradient(var(--pitch-line), var(--pitch-line)),
+        linear-gradient(var(--pitch-line), var(--pitch-line));
+    background-size: 2px 100%, 100% 2px;
+    background-position: left center, top center;
 }
 
-.dict-pitch-reading .link-flat { box-shadow: none; }
+.dict-pitch-reading .pitch-low.link-drop {
+    background-image:
+        linear-gradient(var(--pitch-line), var(--pitch-line)),
+        linear-gradient(var(--pitch-line), var(--pitch-line));
+    background-size: 2px 100%, 100% 2px;
+    background-position: left center, bottom center;
+}
 
 /* Empty tail mora for the 尾高 drop after the word. */
 .dict-pitch-reading .pitch-low.tail { min-width: 6px; }
